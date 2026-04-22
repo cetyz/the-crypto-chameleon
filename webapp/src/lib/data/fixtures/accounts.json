@@ -1,0 +1,14 @@
+[
+  {
+    "key": "chameleon",
+    "label": "Chameleon",
+    "inception_date": "2025-10-22",
+    "starting_capital_usd": 10000
+  },
+  {
+    "key": "control",
+    "label": "Control (DCA)",
+    "inception_date": "2025-10-22",
+    "starting_capital_usd": 10000
+  }
+]
