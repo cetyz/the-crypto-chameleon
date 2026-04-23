@@ -9,16 +9,18 @@ The SvelteKit dashboard is a public, read-only transparency tool comparing two C
 - Links: Telegram channel, GitHub repo.
 
 ### 2. Headline comparison (two tiles, side-by-side)
-For **each** account (Chameleon, Control), show three metrics:
+For **each** account (Chameleon, Control), show four metrics:
 - **% return since inception** (primary, largest).
 - **Portfolio value in USD**.
 - **Portfolio value in BTC** (e.g. "0.0412 BTC") — shows performance independent of USD volatility.
+- **Capital invested (USD)** — the account's starting capital, for reference.
 
 Small sparkline under each tile.
 
-### 3. Equity curve chart
+### 3. Portfolio value chart
 - Single chart, two lines (Chameleon vs Control).
-- Default y-axis: normalized % return since inception.
+- Default y-axis: absolute USD value (not normalized).
+- USD / BTC toggle alongside the time-range selector — BTC mode plots the portfolio denominated in BTC.
 - Time range selector: 1M / 3M / All.
 
 ### 4. Next scheduled run countdown

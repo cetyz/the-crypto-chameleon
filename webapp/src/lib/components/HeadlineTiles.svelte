@@ -35,6 +35,7 @@
         <div class="space-y-0.5">
           <div class="text-lg font-medium">{fmtUSD(s.portfolio_usd)}</div>
           <div class="text-sm text-slate-400">{fmtBTC(s.portfolio_btc)}</div>
+          <div class="text-sm text-slate-400">Capital invested: {fmtUSD(s.account.starting_capital_usd)}</div>
         </div>
         <Sparkline values={s.sparkline} color={tileColor(s.account.key)} />
       </div>

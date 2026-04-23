@@ -11,7 +11,7 @@ Three decoupled components:
   2. Executes a DCA purchase on the **control** Crypto.com account.
   3. Writes all resulting transactions to Supabase.
   4. Posts an announcement to the public Telegram channel linking to the dashboard.
-- **SvelteKit dashboard (Vercel, free tier)** — public, read-only. Reads from Supabase and displays transactions for both accounts. Visitors can interact with visual filters (time ranges, account selector, cuts) but cannot mutate data.
+- **SvelteKit dashboard (Vercel, free tier)** — public, read-only. Reads from Supabase and displays transactions for both accounts. Visitors can interact with visual filters (time ranges, account selector, cuts) but cannot mutate data. REFER TO `dashboard_plan.md`.
 - **Supabase (free tier)** — shared persistence layer. Row Level Security configured so that the anon/public role has read-only access; writes go through a service role used only by the GitHub Actions job.
 
 ### Why GitHub Actions instead of Vercel cron

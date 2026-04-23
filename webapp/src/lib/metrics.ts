@@ -95,10 +95,14 @@ export function buildEquitySeries(
     );
     const chamUSD = valueUSD(chamState, prices, p.timestamp);
     const ctrlUSD = valueUSD(ctrlState, prices, p.timestamp);
+    const chamBTC = p.usd === 0 ? 0 : chamUSD / p.usd;
+    const ctrlBTC = p.usd === 0 ? 0 : ctrlUSD / p.usd;
     return {
       timestamp: p.timestamp,
       chameleon_usd: chamUSD,
       control_usd: ctrlUSD,
+      chameleon_btc: chamBTC,
+      control_btc: ctrlBTC,
       chameleon_pct: percentReturn(chamUSD, startingCapital.chameleon),
       control_pct: percentReturn(ctrlUSD, startingCapital.control)
     };

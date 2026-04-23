@@ -28,6 +28,8 @@ export interface EquityPoint {
   control_pct: number;
   chameleon_usd: number;
   control_usd: number;
+  chameleon_btc: number;
+  control_btc: number;
 }
 
 export interface NextRun {
