@@ -23,6 +23,7 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
     "d3-scale": "^4.0.2",
     "layercake": "^8.4.0"
   }
