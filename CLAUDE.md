@@ -12,7 +12,7 @@ Three decoupled components:
   3. Writes all resulting transactions to Supabase.
   4. Posts an announcement to the public Telegram channel linking to the dashboard.
 - **SvelteKit dashboard (Vercel, free tier)** — public, read-only. Reads from Supabase and displays transactions for both accounts. Visitors can interact with visual filters (time ranges, account selector, cuts) but cannot mutate data. REFER TO `dashboard_plan.md`.
-- **Supabase (free tier)** — shared persistence layer. Row Level Security configured so that the anon/public role has read-only access; writes go through a service role used only by the GitHub Actions job.
+- **Supabase (free tier)** — shared persistence layer. Row Level Security configured so that the anon/public role has read-only access; writes go through a service role used only by the GitHub Actions job. REFER to `database_instructions.md`
 
 ### Why GitHub Actions instead of Vercel cron
 Vercel Hobby tier caps serverless execution time and has Python cold-start friction. GitHub Actions runs Python natively with generous free-tier minutes and easy secrets management — a better fit for a beginner and for weekly trading-logic runs.

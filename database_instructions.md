@@ -1,6 +1,6 @@
 # Database Instructions
 
-How any code in this repo should interact with Supabase. Companion to [supabase_plan.md](supabase_plan.md) (the schema and migration steps) and [CLAUDE.md](CLAUDE.md) (the project's guiding principles).
+How any code in this repo should interact with Supabase. The authoritative schema lives in [schema.sql](schema.sql). Project guiding principles are in [CLAUDE.md](CLAUDE.md).
 
 If you're adding a new entry point — a new SvelteKit route, a new Python script, a one-off backfill — read this first.
 
@@ -15,7 +15,7 @@ The anon key is safe to ship to the browser because RLS guarantees read-only acc
 
 ## Tables
 
-Authoritative schema is in [supabase_plan.md:28](supabase_plan.md#L28). Quick reference:
+Authoritative schema is in [schema.sql](schema.sql). Quick reference:
 
 - **`accounts`** — two rows, keyed by `'chameleon' | 'control'`. Stores label and inception date. `starting_capital_usd` is **not** a column; derive it by summing `capital_events`.
 - **`capital_events`** — deposits and withdrawals per account. Sum (`deposit` as +, `withdrawal` as −) gives net capital invested.
@@ -29,7 +29,7 @@ Prices are not stored. See **Where prices come from** below.
 
 ## Read patterns (webapp)
 
-The dashboard's canonical queries are listed in [supabase_plan.md:157](supabase_plan.md#L157). When adding new reads:
+The live source of truth for the dashboard's queries is [webapp/src/lib/data/index.ts](webapp/src/lib/data/index.ts). When adding new reads:
 
 - Import the singleton client: `import { supabase } from '$lib/supabase'` ([webapp/src/lib/supabase.ts](webapp/src/lib/supabase.ts)).
 - Run reads in `+page.server.ts` (server-side load), not in components. Components stay dumb renderers.
@@ -39,15 +39,29 @@ The dashboard's canonical queries are listed in [supabase_plan.md:157](supabase_
 
 ## Write patterns (Python job)
 
-All writes go through `service_role`. The idempotency protocol is laid out in [supabase_plan.md:170](supabase_plan.md#L170); restated as rules:
+All writes go through `service_role`. Real money is at stake and runs may be retried by GitHub Actions, so the protocol is built around two idempotency guarantees: one `runs` row per `scheduled_for` slot, and one `transactions` row per logical order (keyed by `client_oid`).
 
-1. **One `runs` row per `scheduled_for`.** Use `INSERT ... ON CONFLICT (scheduled_for) DO UPDATE SET status='running', started_at=now() RETURNING id`. A retry of the same scheduled slot updates the existing row, doesn't create a second.
-2. **Deterministic `client_oid` per order.** Format: `{scheduled_for:%Y%m%d}-{account}-{purpose}` (or equivalent). Same inputs must produce the same key.
-3. **Check before placing.** `SELECT 1 FROM transactions WHERE client_oid = ?` — if present, skip. Belt-and-braces alongside the `UNIQUE` constraint.
-4. **Place the order on Crypto.com passing `client_oid` as the exchange's idempotency hint.**
-5. **Insert the transaction with the full API response** in `raw`. If a concurrent retry beat us in, the `UNIQUE(client_oid)` constraint raises — catch and move on.
-6. **On success:** `UPDATE runs SET status='succeeded', finished_at=now()` for the current run, then `INSERT` the next `pending` row at the next cadence slot.
-7. **On failure:** `UPDATE runs SET status='failed', error_message=...` and send a Telegram alert to the **private** channel (per [CLAUDE.md](CLAUDE.md)). Do not exit cleanly.
+Each scheduled run does this:
+
+1. **Compute `scheduled_for`** by snapping "now" onto the configured cadence (e.g. weekly).
+2. **Upsert the run row.** Survives retries — same `scheduled_for` updates the existing row instead of creating a second.
+   ```sql
+   insert into runs (scheduled_for, status, started_at)
+   values (?, 'running', now())
+   on conflict (scheduled_for) do update
+     set status = 'running', started_at = now()
+   returning id;
+   ```
+3. **Compute `client_oid` deterministically** for each planned order. Same inputs must produce the same key — that's what makes a retry safe. Example format: `f"{scheduled_for:%Y%m%d}-{account}-{purpose}"`, e.g. `20260429-chameleon-rotate`.
+4. **Pre-check** before hitting the exchange. Belt-and-braces alongside the `UNIQUE` constraint:
+   ```sql
+   select 1 from transactions where client_oid = ?;
+   ```
+   If a row exists, the order was placed on a prior attempt — skip.
+5. **Place the order on Crypto.com**, passing `client_oid` as the exchange's idempotency hint.
+6. **Poll for fill, then insert the transaction** with the full API response in `raw`. If a concurrent retry inserted first, the `UNIQUE(client_oid)` constraint raises — catch and move on.
+7. **On success:** `update runs set status='succeeded', finished_at=now() where id=?`, then `insert` the next `runs` row with `status='pending'` and the next cadence slot — this is what the dashboard's "Next run" countdown reads.
+8. **On failure:** `update runs set status='failed', error_message=?` and send a Telegram alert to the **private** channel (per [CLAUDE.md](CLAUDE.md)). Do not exit cleanly — silent failure is unacceptable.
 
 ## RLS invariants
 
@@ -55,7 +69,23 @@ All writes go through `service_role`. The idempotency protocol is laid out in [s
 - Anon role has `SELECT` policies only — no insert, update, or delete policies for `anon`.
 - Service role bypasses RLS by design.
 
-Do not add anon write policies, and do not disable RLS on any table, without explicit review. Verification snippet (run as `anon` in the SQL Editor) is in [supabase_plan.md:132](supabase_plan.md#L132): a `SELECT` succeeds, an `INSERT` fails with `new row violates row-level security policy`. Both outcomes are required to confirm the gate is live.
+Do not add anon write policies, and do not disable RLS on any table, without explicit review. To verify the gate is live, switch the SQL Editor role to `anon` and run:
+
+```sql
+select * from public.transactions;
+-- expected: succeeds (returns 0 rows pre-first-run)
+
+insert into public.accounts (key, label, inception_date)
+  values ('hacker', 'nope', '2026-01-01');
+-- expected: ERROR — new row violates row-level security policy
+```
+
+Both outcomes — the read succeeding and the write failing — are required.
+
+## Known limitations
+
+- **`% return` under top-ups.** Today's calculation treats `starting_capital_usd` as the sum of all `capital_events` and compares against current portfolio value — a simple return that understates performance when a deposit lands mid-period. When top-ups become routine, switch to a time-weighted or money-weighted return; the schema already supports either.
+- **Delisted assets.** [webapp/src/lib/prices.ts](webapp/src/lib/prices.ts) returns an empty series for any asset whose Crypto.com candlestick fetch fails, which means a delisted holding is currently valued at `$0` in the equity chart. Fix when a delisting actually bites by falling back to the last known price (e.g. cached at the last successful fetch, or stored alongside the transaction).
 
 ## Where prices come from
 
@@ -69,6 +99,6 @@ If a feature needs persisted price history (e.g. detailed audit of execution sli
 
 ## Changing the schema
 
-Schema migrations are run by hand in the Supabase SQL Editor following [supabase_plan.md](supabase_plan.md). Until that stops scaling (multiple environments, multiple contributors, frequent migrations), don't introduce a CLI-driven migration tool. When that day comes, move to `supabase/migrations/` + the Supabase CLI.
+[schema.sql](schema.sql) is the single source of truth. Migrations are run by hand in the Supabase SQL Editor — paste the `CREATE TABLE` blocks (or a targeted `ALTER TABLE`) directly. Until this stops scaling (multiple environments, multiple contributors, frequent migrations), don't introduce a CLI-driven migration tool. When that day comes, move to `supabase/migrations/` + the Supabase CLI, with `schema.sql` as the starting baseline.
 
-In the meantime: any schema change must update [supabase_plan.md](supabase_plan.md) and this document in the same commit so they don't drift.
+In the meantime: any schema change must update [schema.sql](schema.sql) and this document in the same commit so they don't drift.
