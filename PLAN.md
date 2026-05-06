@@ -20,8 +20,8 @@ These are checks, not code changes — but they belong in the plan because the s
 
 ### 1. Confirm Supabase schema is applied + seed accounts
 
-- [ ] In Supabase Dashboard → SQL Editor, run `select * from public.accounts;` and handle one of three outcomes:
-  - [ ] **Two rows (`chameleon`, `control`) returned** → done.
+- [x] In Supabase Dashboard → SQL Editor, run `select * from public.accounts;` and handle one of three outcomes:
+  - [x] **Two rows (`chameleon`, `control`) returned** → done.
   - [ ] **Empty result, no error** → schema applied, just seed:
     ```sql
     insert into public.accounts (key, label, inception_date) values
@@ -29,48 +29,48 @@ These are checks, not code changes — but they belong in the plan because the s
       ('control',   'Control',   current_date);
     ```
   - [ ] **Error: relation does not exist** → paste the entire contents of [schema.sql](schema.sql) into the SQL Editor and run, then run the seed insert above.
-- [ ] Verify RLS gate per [database_instructions.md](database_instructions.md): switch SQL Editor role to `anon`. `select * from public.transactions;` should succeed (0 rows). `insert into public.accounts (...)` should fail with an RLS error.
+- [x] Verify RLS gate per [database_instructions.md](database_instructions.md): switch SQL Editor role to `anon`. `select * from public.transactions;` should succeed (0 rows). `insert into public.accounts (...)` should fail with an RLS error.
 
 ### 2. Create Telegram channels and capture IDs
 
-- [ ] Create a **public** Telegram channel (the announcement channel — visitors of the dashboard will see this). Add the existing bot as admin with "post messages" permission.
-- [ ] Create a **private** chat or channel for failure alerts. Add the bot.
-- [ ] Capture both chat IDs. Easiest method: send a message to each from your account, then GET `https://api.telegram.org/bot<TOKEN>/getUpdates` and read `chat.id` from the JSON. Public channel IDs are negative integers like `-1001234567890`.
+- [x] Create a **public** Telegram channel (the announcement channel — visitors of the dashboard will see this). Add the existing bot as admin with "post messages" permission.
+- [x] Create a **private** chat or channel for failure alerts. Add the bot.
+- [x] Capture both chat IDs. Easiest method: send a message to each from your account, then GET `https://api.telegram.org/bot<TOKEN>/getUpdates` and read `chat.id` from the JSON. Public channel IDs are negative integers like `-1001234567890`.
 
 ### 3. Capture VM env vars
 
 The VM `.env` already has the chameleon Crypto.com keys (`CDCEX_API`, `CDCEX_SECRET`) since `cdc.py` runs. Add:
 
-- [ ] Rename existing chameleon keys:
+- [x] Rename existing chameleon keys:
   ```
   CDCEX_CHAMELEON_API=...
   CDCEX_CHAMELEON_SECRET=...
   ```
-- [ ] Add control keys (separate API key from Crypto.com sub-account):
+- [x] Add control keys (separate API key from Crypto.com sub-account):
   ```
   CDCEX_CONTROL_API=...
   CDCEX_CONTROL_SECRET=...
   ```
-- [ ] Add Supabase vars:
+- [x] Add Supabase vars:
   ```
   SUPABASE_URL=https://<project-ref>.supabase.co
   SUPABASE_SERVICE_ROLE_KEY=...
   ```
-- [ ] Add Telegram vars:
+- [x] Add Telegram vars:
   ```
   TELEGRAM_BOT_TOKEN=...
   TELEGRAM_PUBLIC_CHANNEL_ID=-100...
   TELEGRAM_PRIVATE_CHAT_ID=...
   ```
-- [ ] Add dashboard URL (linked from Telegram messages):
+- [x] Add dashboard URL (linked from Telegram messages):
   ```
   DASHBOARD_URL=https://<vercel-deployment>.vercel.app
   ```
-- [ ] Add safety flag:
+- [x] Add safety flag:
   ```
   DRY_RUN=true
   ```
-- [ ] Confirm both Crypto.com API keys whitelist the VM's static IP and have **withdraw permission disabled**.
+- [x] Confirm both Crypto.com API keys whitelist the VM's static IP and have **withdraw permission disabled**.
 
 ## Code changes
 
