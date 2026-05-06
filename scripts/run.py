@@ -158,6 +158,32 @@ def insert_next_pending_run(sb: Client, next_scheduled_for: datetime) -> None:
     ).execute()
 
 
+def upsert_snapshot(
+    sb: Client,
+    *,
+    account: str,
+    run_id: str,
+    btc_qty: Decimal,
+    stable_usd: Decimal,
+    btc_price_usd: Decimal,
+    total_value_usd: Decimal,
+    raw: Dict[str, Any],
+) -> None:
+    sb.table("valuation_snapshots").upsert(
+        {
+            "account": account,
+            "run_id": run_id,
+            "snapshot_at": _utc_now_iso(),
+            "btc_qty": str(btc_qty),
+            "stable_usd": str(stable_usd),
+            "btc_price_usd": str(btc_price_usd),
+            "total_value_usd": str(total_value_usd),
+            "raw": raw,
+        },
+        on_conflict="account,run_id",
+    ).execute()
+
+
 # ----------------------------------------------------------------------
 # 6. Telegram
 # ----------------------------------------------------------------------
@@ -326,6 +352,44 @@ def execute_trade(
 
 
 # ----------------------------------------------------------------------
+# 8.5 Balance snapshot
+# ----------------------------------------------------------------------
+
+# Crypto.com normalizes USD-pegged stables to USD in user-balance responses,
+# but be permissive in case sub-account configuration leaves them split out.
+STABLE_INSTRUMENTS = frozenset({"USD", "USDC", "USDT", "USDC.E"})
+
+
+def capture_balance(cdc: CryptoComAPI) -> Dict[str, Any]:
+    """Read on-exchange balance + live BTC price for one account."""
+    bal = cdc.get_user_balance()
+    positions = bal["data"][0]["position_balances"]
+
+    btc_qty = Decimal("0")
+    stable_usd = Decimal("0")
+    for p in positions:
+        instrument = (p.get("instrument_name") or "").upper()
+        qty = Decimal(str(p.get("quantity", "0")))
+        if instrument == "BTC":
+            btc_qty += qty
+        elif instrument in STABLE_INSTRUMENTS:
+            stable_usd += qty
+
+    ticker = cdc.get_ticker("BTC_USD")
+    # Crypto.com ticker field "a" = latest trade price; verified in execute_trade.
+    btc_price_usd = Decimal(str(ticker["a"]))
+
+    total = btc_qty * btc_price_usd + stable_usd
+    return {
+        "btc_qty": btc_qty,
+        "stable_usd": stable_usd,
+        "btc_price_usd": btc_price_usd,
+        "total_value_usd": total,
+        "raw": {"balance": bal, "ticker": ticker},
+    }
+
+
+# ----------------------------------------------------------------------
 # 9. main
 # ----------------------------------------------------------------------
 
@@ -344,19 +408,35 @@ def main() -> None:
             f"run_id={run_id} dry_run={DRY_RUN}"
         )
 
-        for account, decide_fn, cdc_client in (
+        accounts = (
             ("chameleon", decide_chameleon, cdc_chameleon),
             ("control", decide_control, cdc_control),
-        ):
+        )
+
+        for account, decide_fn, cdc_client in accounts:
             spec = decide_fn(cdc_client)
             if spec is None:
                 print(f"{account}: no trade")
                 continue
             execute_trade(cdc_client, sb, run_id, account, scheduled_for, spec)
 
+        snapshots: Dict[str, Decimal] = {}
+        for account, _decide_fn, cdc_client in accounts:
+            snap = capture_balance(cdc_client)
+            upsert_snapshot(sb, account=account, run_id=run_id, **snap)
+            snapshots[account] = snap["total_value_usd"]
+            print(
+                f"{account}: snapshot btc={snap['btc_qty']} stable=${snap['stable_usd']} "
+                f"total=${snap['total_value_usd']}"
+            )
+
         mark_run(sb, run_id, "succeeded")
         insert_next_pending_run(sb, compute_next_run(scheduled_for))
-        tg_public(f"Run for {scheduled_for:%Y-%m-%d} complete. {DASHBOARD_URL}")
+        tg_public(
+            f"Run {scheduled_for:%Y-%m-%d} complete. "
+            f"Chameleon ${snapshots['chameleon']:,.2f} · "
+            f"Control ${snapshots['control']:,.2f}\n{DASHBOARD_URL}"
+        )
         print("run succeeded")
 
     except Exception:

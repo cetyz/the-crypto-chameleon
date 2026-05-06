@@ -158,7 +158,42 @@ Single file, top-to-bottom readable. Sections in order:
 ## Open items deferred (not blocking this plan)
 
 - [ ] Chameleon strategy logic (decide_chameleon body).
-- [ ] Control DCA params (asset, notional, frequency).
+- [ ] Control DCA params (asset, frequency). _Notional resolved: $50 seed per account — see "Capital seeding & live valuation" below._
 - [ ] Whether to denominate DCA in a stablecoin pair (`BTC_USDT`) vs USD (`BTC_USD`) — depends on what's tradable from each account; check with `get_instruments()` once.
-- [ ] Dashboard deployment to Vercel — the webapp shell already exists; once the first run row lands in Supabase, this becomes the next priority.
-- [ ] Update `database_instructions.md`'s "GitHub Actions" references to "VM + cron + .env" (small, do alongside).
+- [x] Dashboard deployment to Vercel — the webapp shell already exists; once the first run row lands in Supabase, this becomes the next priority.
+- [x] Update `database_instructions.md`'s "GitHub Actions" references to "VM + cron + .env" (small, do alongside).
+
+## Capital seeding & live valuation
+
+The v1 plan above did not specify starting capital or a live valuation path. Without these, the dashboard's "Capital invested" tile reads $0 (no `capital_events` rows) and "Current value" sits at the seed amount indefinitely (no `transactions` while `decide_chameleon` returns `None`). Decision: $50 USD per account, plus a balance-snapshot table written by the VM script and read by the dashboard.
+
+### Schema + seed
+
+- [x] `schema.sql` — add `valuation_snapshots` table (`account`, `run_id`, `snapshot_at`, `btc_qty`, `stable_usd`, `btc_price_usd`, `total_value_usd`, `raw`) with `unique(account, run_id)` and an anon `select` policy.
+- [x] `database_instructions.md` — document `valuation_snapshots` and the price-storage carve-out.
+- [x] Apply the new table by pasting the `valuation_snapshots` block into the Supabase SQL Editor.
+- [x] Seed starting capital in the SQL Editor:
+  ```sql
+  insert into public.capital_events (account, occurred_at, kind, amount_usd, note) values
+    ('chameleon', now(), 'deposit', 50, 'initial seed'),
+    ('control',   now(), 'deposit', 50, 'initial seed');
+  ```
+- [x] Confirm both Crypto.com sub-accounts hold ≥$50 in stable balance (USD/USDC/USDT) before the first run.
+
+### Code
+
+- [x] `scripts/run.py` — add `upsert_snapshot()` and `capture_balance()`; second pass in `main()` snapshots both accounts after trade decisions; public Telegram message includes both totals.
+- [x] `webapp/src/lib/types.ts` — add `ValuationSnapshot` interface.
+- [x] `webapp/src/lib/data/index.ts` — add `getLatestSnapshots()`; `getAccountSummaries()` prefers `total_value_usd` from the snapshot, falling back to the transaction-walked value when no snapshot exists yet.
+
+### Verification
+
+- [x] After seed: dashboard's "Capital invested" tile reads $50 for each account.
+- [ ] Manual dry-run: two new `valuation_snapshots` rows (one per account); each `total_value_usd ≈ 50.00`. Dashboard's "Current value" tile reflects the snapshot.
+- [ ] Re-run the script: one row per `(account, run_id)` (upsert, no duplicates).
+- [ ] Manually buy a small BTC notional on one account, re-run: that account's snapshot shows `btc_qty > 0`, `stable_usd` reduced, `total_value_usd ≈ unchanged` (modulo fees/spread).
+
+### Out of scope (follow-ups)
+
+- Switching the equity chart and sparklines from transaction-walked to snapshot-history-based — needs ~12 weeks of accumulated snapshots first.
+- Higher-frequency snapshots (a second cron line) for a more responsive dashboard.

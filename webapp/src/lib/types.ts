@@ -37,6 +37,15 @@ export interface NextRun {
   last_updated: string;
 }
 
+export interface ValuationSnapshot {
+  account: AccountKey;
+  snapshot_at: string;
+  btc_qty: number;
+  stable_usd: number;
+  btc_price_usd: number;
+  total_value_usd: number;
+}
+
 export interface AccountSummary {
   account: Account;
   portfolio_usd: number;

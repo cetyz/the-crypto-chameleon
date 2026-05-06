@@ -59,19 +59,41 @@ create index transactions_account_executed_at_idx
 create index transactions_run_id_idx
   on public.transactions (run_id);
 
+-- ========== valuation_snapshots ==========
+-- One row per (account, run) capturing the on-exchange balance and the BTC
+-- price used to value it. Source of truth for the dashboard's "Current value"
+-- tile. run_id is nullable to allow future ad-hoc snapshots outside a run.
+create table public.valuation_snapshots (
+  id              uuid primary key default gen_random_uuid(),
+  account         text not null references public.accounts(key) on delete restrict,
+  run_id          uuid references public.runs(id) on delete set null,
+  snapshot_at     timestamptz not null default now(),
+  btc_qty         numeric(38, 18) not null check (btc_qty >= 0),
+  stable_usd      numeric(20, 8)  not null check (stable_usd >= 0),
+  btc_price_usd   numeric(20, 8)  not null check (btc_price_usd > 0),
+  total_value_usd numeric(20, 8)  not null check (total_value_usd >= 0),
+  raw             jsonb,
+  unique (account, run_id)
+);
+create index valuation_snapshots_account_snapshot_at_idx
+  on public.valuation_snapshots (account, snapshot_at desc);
+
 -- ========== Row Level Security ==========
 -- Anon role gets SELECT-only across all tables. service_role bypasses RLS by
 -- design, so writes (the Python job) need no policy.
-alter table public.accounts        enable row level security;
-alter table public.capital_events  enable row level security;
-alter table public.runs            enable row level security;
-alter table public.transactions    enable row level security;
+alter table public.accounts             enable row level security;
+alter table public.capital_events       enable row level security;
+alter table public.runs                 enable row level security;
+alter table public.transactions         enable row level security;
+alter table public.valuation_snapshots  enable row level security;
 
 create policy "anon reads accounts"
-  on public.accounts        for select to anon using (true);
+  on public.accounts             for select to anon using (true);
 create policy "anon reads capital_events"
-  on public.capital_events  for select to anon using (true);
+  on public.capital_events       for select to anon using (true);
 create policy "anon reads runs"
-  on public.runs            for select to anon using (true);
+  on public.runs                 for select to anon using (true);
 create policy "anon reads transactions"
-  on public.transactions    for select to anon using (true);
+  on public.transactions         for select to anon using (true);
+create policy "anon reads valuation_snapshots"
+  on public.valuation_snapshots  for select to anon using (true);

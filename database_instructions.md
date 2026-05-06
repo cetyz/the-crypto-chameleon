@@ -24,8 +24,9 @@ Authoritative schema is in [schema.sql](schema.sql). Quick reference:
   - `client_oid` — deterministic key set **before** the order is placed; `UNIQUE` constraint catches retry double-placement.
   - `cdc_order_id` — exchange ID returned **after** acceptance; nullable, also `UNIQUE`.
   - `raw` — full API response, kept for audit.
+- **`valuation_snapshots`** — one row per `(account, run)` capturing the on-exchange balance and the BTC price used to value it. `total_value_usd = btc_qty * btc_price_usd + stable_usd`. This is the dashboard's source of truth for the **Current value** tile. The `unique(account, run_id)` constraint makes the snapshot upsert-safe under cron retries. `run_id` is nullable to allow future ad-hoc snapshots outside a scheduled run.
 
-Prices are not stored. See **Where prices come from** below.
+Prices are not stored as a time series — see **Where prices come from** below. `valuation_snapshots.btc_price_usd` is a deliberate exception: the price-at-snapshot is persisted alongside the saved `total_value_usd` so the valuation is reproducible and auditable.
 
 ## Read patterns (webapp)
 
@@ -60,8 +61,9 @@ Each scheduled run does this:
    If a row exists, the order was placed on a prior attempt — skip.
 5. **Place the order on Crypto.com**, passing `client_oid` as the exchange's idempotency hint.
 6. **Poll for fill, then insert the transaction** with the full API response in `raw`. If a concurrent retry inserted first, the `UNIQUE(client_oid)` constraint raises — catch and move on.
-7. **On success:** `update runs set status='succeeded', finished_at=now() where id=?`, then `insert` the next `runs` row with `status='pending'` and the next cadence slot — this is what the dashboard's "Next run" countdown reads.
-8. **On failure:** `update runs set status='failed', error_message=?` and send a Telegram alert to the **private** channel (per [CLAUDE.md](CLAUDE.md)). Do not exit cleanly — silent failure is unacceptable.
+7. **Snapshot balances** for each account: call `get_user_balance()` and `get_ticker('BTC_USD')`, compute `total_value_usd = btc_qty * btc_price_usd + stable_usd`, and `upsert` a row into `valuation_snapshots` with `on_conflict='account,run_id'` so a retry replaces the prior attempt. This pass runs even under `DRY_RUN=true` because it only reads from the exchange.
+8. **On success:** `update runs set status='succeeded', finished_at=now() where id=?`, then `insert` the next `runs` row with `status='pending'` and the next cadence slot — this is what the dashboard's "Next run" countdown reads.
+9. **On failure:** `update runs set status='failed', error_message=?` and send a Telegram alert to the **private** channel (per [CLAUDE.md](CLAUDE.md)). Do not exit cleanly — silent failure is unacceptable.
 
 ## RLS invariants
 
@@ -89,7 +91,7 @@ Both outcomes — the read succeeding and the write failing — are required.
 
 ## Where prices come from
 
-Supabase does **not** store prices. The dashboard fetches historical and live prices from Crypto.com's public candlestick endpoint via [webapp/src/lib/prices.ts](webapp/src/lib/prices.ts).
+Supabase does **not** store prices as a time series. The dashboard fetches historical and live prices from Crypto.com's public candlestick endpoint via [webapp/src/lib/prices.ts](webapp/src/lib/prices.ts). The single price persisted alongside each `valuation_snapshots` row is the carve-out: it pins the BTC price used to compute that row's `total_value_usd`, so the saved valuation can be reproduced from its inputs.
 
 Reasons:
 - Free-tier storage stays focused on the small, append-only trade and capital tables.

@@ -4,7 +4,8 @@ import type {
   AccountSummary,
   EquityPoint,
   NextRun,
-  Transaction
+  Transaction,
+  ValuationSnapshot
 } from '$lib/types';
 import {
   buildEquitySeries,
@@ -98,6 +99,32 @@ function startingMap(accounts: Account[]): Record<AccountKey, number> {
   };
 }
 
+export async function getLatestSnapshots(): Promise<Record<AccountKey, ValuationSnapshot | null>> {
+  const { data, error } = await supabase
+    .from('valuation_snapshots')
+    .select('account, snapshot_at, btc_qty, stable_usd, btc_price_usd, total_value_usd')
+    .order('snapshot_at', { ascending: false });
+  if (error) throw error;
+
+  const result: Record<AccountKey, ValuationSnapshot | null> = {
+    chameleon: null,
+    control: null
+  };
+  for (const row of data ?? []) {
+    const key = row.account as AccountKey;
+    if (result[key] !== null) continue;
+    result[key] = {
+      account: key,
+      snapshot_at: row.snapshot_at,
+      btc_qty: Number(row.btc_qty),
+      stable_usd: Number(row.stable_usd),
+      btc_price_usd: Number(row.btc_price_usd),
+      total_value_usd: Number(row.total_value_usd)
+    };
+  }
+  return result;
+}
+
 export async function getEquityCurve(fetch: typeof globalThis.fetch): Promise<EquityPoint[]> {
   const [accounts, transactions] = await Promise.all([getAccounts(), getTransactions()]);
   const heldAssets = Array.from(new Set(transactions.map((t) => t.asset)));
@@ -108,19 +135,21 @@ export async function getEquityCurve(fetch: typeof globalThis.fetch): Promise<Eq
 export async function getAccountSummaries(
   fetch: typeof globalThis.fetch
 ): Promise<AccountSummary[]> {
-  const [accounts, transactions] = await Promise.all([getAccounts(), getTransactions()]);
+  const [accounts, transactions, snapshots] = await Promise.all([
+    getAccounts(),
+    getTransactions(),
+    getLatestSnapshots()
+  ]);
   const heldAssets = Array.from(new Set(transactions.map((t) => t.asset)));
   const prices = await fetchPrices(heldAssets, earliestInception(accounts), fetch);
   const curve = buildEquitySeries(transactions, startingMap(accounts), prices);
   const tailStart = Math.max(0, curve.length - SPARKLINE_POINTS);
 
   return accounts.map((account) => {
-    const portfolio_usd = portfolioValueUSD(
-      account.key,
-      transactions,
-      account.starting_capital_usd,
-      prices
-    );
+    const snapshot = snapshots[account.key];
+    const portfolio_usd =
+      snapshot?.total_value_usd ??
+      portfolioValueUSD(account.key, transactions, account.starting_capital_usd, prices);
     const portfolio_btc = portfolioValueBTC(portfolio_usd, prices);
     const pct_return = percentReturn(portfolio_usd, account.starting_capital_usd);
     const key = account.key === 'chameleon' ? 'chameleon_pct' : 'control_pct';
