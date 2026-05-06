@@ -9,7 +9,7 @@ If you're adding a new entry point — a new SvelteKit route, a new Python scrip
 | Caller | Key | Privileges | Where it lives |
 |---|---|---|---|
 | Webapp (browser + SSR) | `PUBLIC_SUPABASE_ANON_KEY` | RLS-restricted: `SELECT` only on all four tables | Vercel env vars + git-ignored `webapp/.env` |
-| Python job (GitHub Actions) | `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS — full read/write | GitHub Actions Secrets only |
+| Python job (VM + cron) | `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS — full read/write | VM `.env` (git-ignored), read by `python-dotenv` |
 
 The anon key is safe to ship to the browser because RLS guarantees read-only access. The service role key bypasses RLS and **must never** be committed, exposed to the browser, or set in Vercel.
 
@@ -39,7 +39,7 @@ The live source of truth for the dashboard's queries is [webapp/src/lib/data/ind
 
 ## Write patterns (Python job)
 
-All writes go through `service_role`. Real money is at stake and runs may be retried by GitHub Actions, so the protocol is built around two idempotency guarantees: one `runs` row per `scheduled_for` slot, and one `transactions` row per logical order (keyed by `client_oid`).
+All writes go through `service_role`. Real money is at stake and runs may be retried by cron (or by hand on the VM), so the protocol is built around two idempotency guarantees: one `runs` row per `scheduled_for` slot, and one `transactions` row per logical order (keyed by `client_oid`).
 
 Each scheduled run does this:
 

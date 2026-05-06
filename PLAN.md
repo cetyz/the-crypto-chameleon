@@ -76,48 +76,48 @@ The VM `.env` already has the chameleon Crypto.com keys (`CDCEX_API`, `CDCEX_SEC
 
 ### Files to create/modify
 
-- [ ] `requirements.txt` — edit: add `supabase` (supabase-py). Telegram uses the existing `requests` dep — no SDK needed.
-- [ ] `scripts/__init__.py` — create: empty, marks package.
-- [ ] `scripts/run.py` — create: the entry script. ~200 lines.
-- [ ] `database_instructions.md` — edit: replace "GitHub Actions" references with "VM + cron"; correct the env-vars location (VM `.env`, not GitHub Secrets).
+- [x] `requirements.txt` — edit: add `supabase` (supabase-py). Telegram uses the existing `requests` dep — no SDK needed.
+- [x] `scripts/__init__.py` — create: empty, marks package.
+- [x] `scripts/run.py` — create: the entry script. ~200 lines.
+- [x] `database_instructions.md` — edit: replace "GitHub Actions" references with "VM + cron"; correct the env-vars location (VM `.env`, not GitHub Secrets).
 
 ### `scripts/run.py` — structure
 
 Single file, top-to-bottom readable. Sections in order:
 
-- [ ] **1. Imports + env load** — `dotenv.load_dotenv()`, then read all required vars; raise immediately if any are missing (fail fast at startup, not mid-trade).
-- [ ] **2. Constants** — `CADENCE_DAYS = 7`, `DRY_RUN = os.environ["DRY_RUN"].lower() == "true"`, control-DCA config block (asset, notional, enabled bool — defaults to `enabled=False`).
-- [ ] **3. `compute_scheduled_for(now) -> datetime`** — snap `now` to the weekly UTC slot (e.g. Monday 12:00 UTC). Pure function, easy to unit-test later.
-- [ ] **4. `compute_next_run(scheduled_for) -> datetime`** — `scheduled_for + timedelta(days=CADENCE_DAYS)`.
-- [ ] **5. Supabase helpers** (inline functions, not a class):
-  - [ ] `upsert_run(sb, scheduled_for) -> run_id` — implements the `INSERT ... ON CONFLICT (scheduled_for) DO UPDATE` from [database_instructions.md](database_instructions.md) step 2. supabase-py's `.upsert(..., on_conflict='scheduled_for')` does this.
-  - [ ] `transaction_exists(sb, client_oid) -> bool`
-  - [ ] `insert_transaction(sb, **fields)` — catches the `UNIQUE(client_oid)` violation and returns silently (per protocol step 6).
-  - [ ] `mark_run(sb, run_id, status, error_message=None)`
-  - [ ] `insert_next_pending_run(sb, next_scheduled_for)`
-- [ ] **6. Telegram helpers**:
-  - [ ] `tg_send(chat_id, text)` — single function, posts to `https://api.telegram.org/bot<TOKEN>/sendMessage` with `parse_mode='Markdown'`.
-  - [ ] `tg_public(text)` / `tg_private(text)` — thin wrappers passing the right chat ID.
-- [ ] **7. Trade decision functions** (the "pluggable" part):
-  - [ ] `decide_chameleon(cdc_chameleon) -> Optional[OrderSpec]` — for v1, returns `None`. Comment placeholder: `# TODO: implement strategy`.
-  - [ ] `decide_control(cdc_control) -> Optional[OrderSpec]` — reads config block; if `enabled=False`, returns `None`; else returns `OrderSpec(side='BUY', instrument='BTC_USD', notional=...)`.
-  - [ ] `OrderSpec` is a dataclass with `instrument`, `side`, `notional` (for buys) or `quantity` (for sells), `purpose` (string for the client_oid).
-- [ ] **8. `execute_trade(cdc, sb, run_id, account, scheduled_for, spec)`**:
-  - [ ] Compute `client_oid = f"{scheduled_for:%Y%m%d}-{account}-{spec.purpose}"` (≤36 chars — verify).
-  - [ ] Pre-check `transaction_exists(sb, client_oid)` → return early if true (retry-safe).
-  - [ ] If `DRY_RUN`: log "would place order: ..." and `insert_transaction` with synthetic price (current ticker), `cdc_order_id=None`, `raw={'dry_run': True, 'spec': asdict(spec)}`. This proves the DB path end-to-end.
-  - [ ] Else: `cdc.create_market_order(...)` → poll `get_order_detail(order_id)` until status is `FILLED` (with timeout, e.g. 30s) → `insert_transaction` with real fields and `raw=full_response`.
-- [ ] **9. `main()`**:
-  - [ ] Wrap entire body in try/except.
-  - [ ] Build two `CryptoComAPI` instances: chameleon, control. (Master not needed for v1.)
-  - [ ] Build Supabase client with service role key.
-  - [ ] `scheduled_for = compute_scheduled_for(now_utc)`
-  - [ ] `run_id = upsert_run(sb, scheduled_for)`
-  - [ ] For each (account, decide_fn, cdc_client): `spec = decide_fn(cdc_client)`; if `spec`: `execute_trade(...)` else log "no trade".
-  - [ ] `mark_run(sb, run_id, 'succeeded')`
-  - [ ] `insert_next_pending_run(sb, compute_next_run(scheduled_for))`
-  - [ ] `tg_public(f"Run for {scheduled_for:%Y-%m-%d} complete. {DASHBOARD_URL}")`
-  - [ ] On exception: `mark_run(sb, run_id, 'failed', error_message=traceback)`, `tg_private(f"❌ Run failed:\n```\n{traceback}\n```")`, `sys.exit(1)`.
+- [x] **1. Imports + env load** — `dotenv.load_dotenv()`, then read all required vars; raise immediately if any are missing (fail fast at startup, not mid-trade).
+- [x] **2. Constants** — `CADENCE_DAYS = 7`, `DRY_RUN = os.environ["DRY_RUN"].lower() == "true"`, control-DCA config block (asset, notional, enabled bool — defaults to `enabled=False`).
+- [x] **3. `compute_scheduled_for(now) -> datetime`** — snap `now` to the weekly UTC slot (e.g. Monday 12:00 UTC). Pure function, easy to unit-test later.
+- [x] **4. `compute_next_run(scheduled_for) -> datetime`** — `scheduled_for + timedelta(days=CADENCE_DAYS)`.
+- [x] **5. Supabase helpers** (inline functions, not a class):
+  - [x] `upsert_run(sb, scheduled_for) -> run_id` — implements the `INSERT ... ON CONFLICT (scheduled_for) DO UPDATE` from [database_instructions.md](database_instructions.md) step 2. supabase-py's `.upsert(..., on_conflict='scheduled_for')` does this.
+  - [x] `transaction_exists(sb, client_oid) -> bool`
+  - [x] `insert_transaction(sb, **fields)` — catches the `UNIQUE(client_oid)` violation and returns silently (per protocol step 6).
+  - [x] `mark_run(sb, run_id, status, error_message=None)`
+  - [x] `insert_next_pending_run(sb, next_scheduled_for)`
+- [x] **6. Telegram helpers**:
+  - [x] `tg_send(chat_id, text)` — single function, posts to `https://api.telegram.org/bot<TOKEN>/sendMessage` with `parse_mode='Markdown'`.
+  - [x] `tg_public(text)` / `tg_private(text)` — thin wrappers passing the right chat ID.
+- [x] **7. Trade decision functions** (the "pluggable" part):
+  - [x] `decide_chameleon(cdc_chameleon) -> Optional[OrderSpec]` — for v1, returns `None`. Comment placeholder: `# TODO: implement strategy`.
+  - [x] `decide_control(cdc_control) -> Optional[OrderSpec]` — reads config block; if `enabled=False`, returns `None`; else returns `OrderSpec(side='BUY', instrument='BTC_USD', notional=...)`.
+  - [x] `OrderSpec` is a dataclass with `instrument`, `side`, `notional` (for buys) or `quantity` (for sells), `purpose` (string for the client_oid).
+- [x] **8. `execute_trade(cdc, sb, run_id, account, scheduled_for, spec)`**:
+  - [x] Compute `client_oid = f"{scheduled_for:%Y%m%d}-{account}-{spec.purpose}"` (≤36 chars — verify).
+  - [x] Pre-check `transaction_exists(sb, client_oid)` → return early if true (retry-safe).
+  - [x] If `DRY_RUN`: log "would place order: ..." and `insert_transaction` with synthetic price (current ticker), `cdc_order_id=None`, `raw={'dry_run': True, 'spec': asdict(spec)}`. This proves the DB path end-to-end.
+  - [x] Else: `cdc.create_market_order(...)` → poll `get_order_detail(order_id)` until status is `FILLED` (with timeout, e.g. 30s) → `insert_transaction` with real fields and `raw=full_response`.
+- [x] **9. `main()`**:
+  - [x] Wrap entire body in try/except.
+  - [x] Build two `CryptoComAPI` instances: chameleon, control. (Master not needed for v1.)
+  - [x] Build Supabase client with service role key.
+  - [x] `scheduled_for = compute_scheduled_for(now_utc)`
+  - [x] `run_id = upsert_run(sb, scheduled_for)`
+  - [x] For each (account, decide_fn, cdc_client): `spec = decide_fn(cdc_client)`; if `spec`: `execute_trade(...)` else log "no trade".
+  - [x] `mark_run(sb, run_id, 'succeeded')`
+  - [x] `insert_next_pending_run(sb, compute_next_run(scheduled_for))`
+  - [x] `tg_public(f"Run for {scheduled_for:%Y-%m-%d} complete. {DASHBOARD_URL}")`
+  - [x] On exception: `mark_run(sb, run_id, 'failed', error_message=traceback)`, `tg_private(f"❌ Run failed:\n```\n{traceback}\n```")`, `sys.exit(1)`.
 
 ### What NOT to add in v1
 
