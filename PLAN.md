@@ -128,16 +128,16 @@ Single file, top-to-bottom readable. Sections in order:
 
 ## VM setup (after code merged + pulled)
 
-- [ ] 1. `cd ~/the-crypto-chameleon && git pull`
-- [ ] 2. `source venv/bin/activate && pip install -r requirements.txt`
-- [ ] 3. Update `~/the-crypto-chameleon/.env` per the env vars list above. **Confirm `DRY_RUN=true` for first run.**
-- [ ] 4. Manual dry-run: `python -m scripts.run`. Expect:
-  - [ ] Exit code 0.
-  - [ ] One new row in `runs` with `status='succeeded'`.
-  - [ ] One new row in `runs` with `status='pending'` for the next slot.
-  - [ ] Zero rows in `transactions` (since both decide functions return `None` in v1).
-  - [ ] One Telegram message in the public channel.
-  - [ ] No message in the private channel.
+- [x] 1. `cd ~/the-crypto-chameleon && git pull`
+- [x] 2. `source venv/bin/activate && pip install -r requirements.txt`
+- [x] 3. Update `~/the-crypto-chameleon/.env` per the env vars list above. **Confirm `DRY_RUN=true` for first run.**
+- [x] 4. Manual dry-run: `python -m scripts.run`. Expect:
+  - [x] Exit code 0.
+  - [x] One new row in `runs` with `status='succeeded'`.
+  - [x] One new row in `runs` with `status='pending'` for the next slot.
+  - [x] Zero rows in `transactions` (since both decide functions return `None` in v1).
+  - [x] One Telegram message in the public channel.
+  - [x] No message in the private channel.
 - [ ] 5. If step 4 passes, install the cron entry. Edit `crontab -e`:
   ```
   0 12 * * 1 cd /home/<USER>/the-crypto-chameleon && /home/<USER>/the-crypto-chameleon/venv/bin/python -m scripts.run >> /home/<USER>/chameleon.log 2>&1
@@ -146,9 +146,9 @@ Single file, top-to-bottom readable. Sections in order:
 
 ## Verification (end-to-end checklist)
 
-- [ ] `select * from public.accounts;` returns 2 rows.
-- [ ] Anon SQL `insert` into any table fails with RLS error.
-- [ ] Both Telegram channels exist; bot is admin.
+- [x] `select * from public.accounts;` returns 2 rows.
+- [x] Anon SQL `insert` into any table fails with RLS error.
+- [x] Both Telegram channels exist; bot is admin.
 - [ ] All env vars set on VM; `python -c "import os, dotenv; dotenv.load_dotenv(); print(sorted(k for k in os.environ if k.startswith(('CDCEX','SUPABASE','TELEGRAM','DASHBOARD','DRY'))))"` lists every key from the table above.
 - [ ] Manual dry-run exits 0, run row + next-pending row visible in Supabase Table Editor, public Telegram message arrives.
 - [ ] Re-run the same script immediately. Same `scheduled_for` slot → second invocation upserts (does not create a duplicate `runs` row); next-pending row stays a single row. **This proves idempotency.**
