@@ -148,13 +148,16 @@ def mark_run(
 
 
 def insert_next_pending_run(sb: Client, next_scheduled_for: datetime) -> None:
+    next_iso = next_scheduled_for.isoformat()
     sb.table("runs").upsert(
-        {
-            "scheduled_for": next_scheduled_for.isoformat(),
-            "status": "pending",
-        },
+        {"scheduled_for": next_iso, "status": "pending"},
         on_conflict="scheduled_for",
         ignore_duplicates=True,
+    ).execute()
+    # Collapse any stale pendings (manual seeds or leftovers from earlier
+    # cycles) so the dashboard's "next run" query has exactly one candidate.
+    sb.table("runs").delete().eq("status", "pending").neq(
+        "scheduled_for", next_iso
     ).execute()
 
 

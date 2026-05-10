@@ -67,6 +67,7 @@ export async function getNextRun(): Promise<NextRun> {
       .from('runs')
       .select('scheduled_for')
       .eq('status', 'pending')
+      .gte('scheduled_for', new Date().toISOString())
       .order('scheduled_for', { ascending: true })
       .limit(1)
       .maybeSingle(),
