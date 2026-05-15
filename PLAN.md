@@ -149,9 +149,9 @@ Single file, top-to-bottom readable. Sections in order:
 - [x] `select * from public.accounts;` returns 2 rows.
 - [x] Anon SQL `insert` into any table fails with RLS error.
 - [x] Both Telegram channels exist; bot is admin.
-- [ ] All env vars set on VM; `python -c "import os, dotenv; dotenv.load_dotenv(); print(sorted(k for k in os.environ if k.startswith(('CDCEX','SUPABASE','TELEGRAM','DASHBOARD','DRY'))))"` lists every key from the table above.
-- [ ] Manual dry-run exits 0, run row + next-pending row visible in Supabase Table Editor, public Telegram message arrives.
-- [ ] Re-run the same script immediately. Same `scheduled_for` slot → second invocation upserts (does not create a duplicate `runs` row); next-pending row stays a single row. **This proves idempotency.**
+- [x] All env vars set on VM; `python -c "import os, dotenv; dotenv.load_dotenv(); print(sorted(k for k in os.environ if k.startswith(('CDCEX','SUPABASE','TELEGRAM','DASHBOARD','DRY'))))"` lists every key from the table above.
+- [x] Manual dry-run exits 0, run row + next-pending row visible in Supabase Table Editor, public Telegram message arrives.
+- [x] Re-run the same script immediately. Same `scheduled_for` slot → second invocation upserts (does not create a duplicate `runs` row); next-pending row stays a single row. **This proves idempotency.**
 - [ ] Force a failure (e.g. temporarily wrong `SUPABASE_URL`). Private Telegram channel receives an error message; script exits non-zero.
 - [ ] Cron entry installed and `grep CRON /var/log/syslog` shows it firing at the next scheduled slot.
 
