@@ -57,7 +57,6 @@ DRY_RUN = _require("DRY_RUN").lower() == "true"
 # 2. Constants & config
 # ----------------------------------------------------------------------
 
-CADENCE_DAYS = 7
 ORDER_POLL_TIMEOUT_S = 30
 ORDER_POLL_INTERVAL_S = 1
 
@@ -73,18 +72,16 @@ CONTROL_DCA: Dict[str, Any] = {
 # ----------------------------------------------------------------------
 
 
-def compute_scheduled_for(now: datetime) -> datetime:
-    """Snap `now` to the most recent Monday 12:00 UTC at or before now."""
-    candidate = (now - timedelta(days=now.weekday())).replace(
-        hour=12, minute=0, second=0, microsecond=0
+def compute_next_tuesday_1300_utc(now: datetime) -> datetime:
+    """Next Tuesday 13:00 UTC strictly after `now`."""
+    # weekday(): Mon=0, Tue=1
+    days_ahead = (1 - now.weekday()) % 7
+    candidate = (now + timedelta(days=days_ahead)).replace(
+        hour=13, minute=0, second=0, microsecond=0
     )
-    if candidate > now:
-        candidate -= timedelta(days=7)
+    if candidate <= now:
+        candidate += timedelta(days=7)
     return candidate
-
-
-def compute_next_run(scheduled_for: datetime) -> datetime:
-    return scheduled_for + timedelta(days=CADENCE_DAYS)
 
 
 def _utc_now_iso() -> str:
@@ -404,7 +401,7 @@ def main() -> None:
         cdc_chameleon = CryptoComAPI(CDCEX_CHAMELEON_API, CDCEX_CHAMELEON_SECRET)
         cdc_control = CryptoComAPI(CDCEX_CONTROL_API, CDCEX_CONTROL_SECRET)
 
-        scheduled_for = compute_scheduled_for(datetime.now(timezone.utc))
+        scheduled_for = datetime.now(timezone.utc)
         run_id = upsert_run(sb, scheduled_for)
         print(
             f"run started: scheduled_for={scheduled_for.isoformat()} "
@@ -434,7 +431,7 @@ def main() -> None:
             )
 
         mark_run(sb, run_id, "succeeded")
-        insert_next_pending_run(sb, compute_next_run(scheduled_for))
+        insert_next_pending_run(sb, compute_next_tuesday_1300_utc(scheduled_for))
         tg_public(
             f"Run {scheduled_for:%Y-%m-%d} complete. "
             f"Chameleon ${snapshots['chameleon']:,.2f} · "

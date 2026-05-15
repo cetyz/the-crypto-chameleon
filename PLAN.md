@@ -138,11 +138,11 @@ Single file, top-to-bottom readable. Sections in order:
   - [x] Zero rows in `transactions` (since both decide functions return `None` in v1).
   - [x] One Telegram message in the public channel.
   - [x] No message in the private channel.
-- [ ] 5. If step 4 passes, install the cron entry. Edit `crontab -e`:
+- [x] 5. If step 4 passes, install the cron entry. Edit `crontab -e`:
   ```
-  0 12 * * 1 cd /home/<USER>/the-crypto-chameleon && /home/<USER>/the-crypto-chameleon/venv/bin/python -m scripts.run >> /home/<USER>/chameleon.log 2>&1
+  0 13 * * 2 cd /home/<USER>/the-crypto-chameleon && /home/<USER>/the-crypto-chameleon/venv/bin/python -m scripts.run >> /home/<USER>/chameleon.log 2>&1
   ```
-  (Mondays at 12:00 server time — verify TZ on the VM matches your intended cadence; consider `TZ=UTC` in the crontab if not.)
+  (Tuesdays at 13:00 server time. TZ on the VM is UTC - checked.)
 
 ## Verification (end-to-end checklist)
 
