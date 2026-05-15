@@ -10,8 +10,8 @@ import type {
 import {
   buildEquitySeries,
   percentReturn,
-  portfolioValueBTC,
-  portfolioValueUSD
+  portfolioHoldings,
+  portfolioValueBTC
 } from '$lib/metrics';
 import { supabase } from '$lib/supabase';
 import { fetchPrices } from '$lib/prices';
@@ -148,13 +148,28 @@ export async function getAccountSummaries(
 
   return accounts.map((account) => {
     const snapshot = snapshots[account.key];
-    const portfolio_usd =
-      snapshot?.total_value_usd ??
-      portfolioValueUSD(account.key, transactions, account.starting_capital_usd, prices);
+    let portfolio_usd: number;
+    let cash_usd: number;
+    let btc_qty: number;
+    if (snapshot) {
+      portfolio_usd = snapshot.total_value_usd;
+      cash_usd = snapshot.stable_usd;
+      btc_qty = snapshot.btc_qty;
+    } else {
+      const h = portfolioHoldings(
+        account.key,
+        transactions,
+        account.starting_capital_usd,
+        prices
+      );
+      portfolio_usd = h.total_usd;
+      cash_usd = h.cash_usd;
+      btc_qty = h.btc_qty;
+    }
     const portfolio_btc = portfolioValueBTC(portfolio_usd, prices);
     const pct_return = percentReturn(portfolio_usd, account.starting_capital_usd);
     const key = account.key === 'chameleon' ? 'chameleon_pct' : 'control_pct';
     const sparkline = curve.slice(tailStart).map((p) => p[key] as number);
-    return { account, portfolio_usd, portfolio_btc, pct_return, sparkline };
+    return { account, portfolio_usd, portfolio_btc, cash_usd, btc_qty, pct_return, sparkline };
   });
 }

@@ -50,6 +50,8 @@ export interface AccountSummary {
   account: Account;
   portfolio_usd: number;
   portfolio_btc: number;
+  cash_usd: number;
+  btc_qty: number;
   pct_return: number;
   sparkline: number[];
 }

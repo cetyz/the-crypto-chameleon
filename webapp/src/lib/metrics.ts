@@ -66,6 +66,21 @@ export function portfolioValueUSD(
   return valueUSD(walk(txns, startingCapital), prices);
 }
 
+export function portfolioHoldings(
+  account: AccountKey,
+  transactions: Transaction[],
+  startingCapital: number,
+  prices: PriceMap
+): { total_usd: number; cash_usd: number; btc_qty: number } {
+  const txns = transactions.filter((t) => t.account === account);
+  const state = walk(txns, startingCapital);
+  return {
+    total_usd: valueUSD(state, prices),
+    cash_usd: state.cash_usd,
+    btc_qty: state.assets['BTC'] ?? 0
+  };
+}
+
 export function portfolioValueBTC(portfolioUSD: number, prices: PriceMap): number {
   const btc = currentPrice(prices, 'BTC');
   return btc === 0 ? 0 : portfolioUSD / btc;

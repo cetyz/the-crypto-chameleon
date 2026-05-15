@@ -32,9 +32,23 @@
         {fmtPct(s.pct_return)}
       </div>
       <div class="mt-3 flex items-end justify-between gap-4">
-        <div class="space-y-0.5">
-          <div class="text-lg font-medium">{fmtUSD(s.portfolio_usd)}</div>
-          <div class="text-sm text-slate-400">{fmtBTC(s.portfolio_btc)}</div>
+        <div class="space-y-3">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Portfolio Value</div>
+            <div class="text-sm mt-0.5">
+              <span class="font-medium">{fmtUSD(s.portfolio_usd)}</span>
+              <span class="text-slate-500"> | </span>
+              <span>{fmtBTC(s.portfolio_btc)}</span>
+            </div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Portfolio Breakdown</div>
+            <div class="text-sm mt-0.5">
+              <span class="font-medium">{fmtUSD(s.cash_usd)}</span>
+              <span class="text-slate-500"> | </span>
+              <span>{fmtBTC(s.btc_qty)}</span>
+            </div>
+          </div>
           <div class="text-sm text-slate-400">Capital invested: {fmtUSD(s.account.starting_capital_usd)}</div>
         </div>
         <Sparkline values={s.sparkline} color={tileColor(s.account.key)} />
