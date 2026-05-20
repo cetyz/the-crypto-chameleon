@@ -276,10 +276,10 @@ The intent stays conservative: rewrite first, verify the chart populates from re
 
 ### Verification
 
-- [ ] With at least one `valuation_snapshots` row per account in Supabase (already true if the weekly cron has fired), `npm run dev` in `webapp/` and load `/`: equity chart shows one point per run, both accounts plotted; sparklines on the account-summary cards show the same series.
-- [ ] Manually trigger another snapshot (`python -m scripts.run` on the VM with `DRY_RUN=true`) and reload: a second point appears on the chart and sparkline without any code change.
-- [ ] "Current value" tile still matches `total_value_usd` from the latest snapshot (no regression from the unchanged snapshot branch).
-- [ ] After cleanup commit: `npm run check` / `npm run build` succeed; no dead-code warnings; grepping for `buildEquitySeries`, `fetchPrices`, and `earliestInception` returns zero hits outside of git history.
+- [x] With at least one `valuation_snapshots` row per account in Supabase (already true if the weekly cron has fired), `npm run dev` in `webapp/` and load `/`: equity chart shows one point per run, both accounts plotted; sparklines on the account-summary cards show the same series.
+- [x] Manually trigger another snapshot (`python -m scripts.run` on the VM with `DRY_RUN=true`) and reload: a second point appears on the chart and sparkline without any code change.
+- [x] "Current value" tile still matches `total_value_usd` from the latest snapshot (no regression from the unchanged snapshot branch).
+- [x] After cleanup commit: `npm run check` / `npm run build` succeed; no dead-code warnings; grepping for `buildEquitySeries`, `fetchPrices`, and `earliestInception` returns zero hits outside of git history.
 
 ### Out of scope (still)
 
