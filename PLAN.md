@@ -215,30 +215,30 @@ Goal: switch the equity chart and sparklines to read `valuation_snapshots` histo
 
 Confirmed call-site scope: the **only** caller of `getEquityCurve()` / `getAccountSummaries()` is [webapp/src/routes/+page.server.ts](webapp/src/routes/+page.server.ts) (grep verified). `getAccountSummaries()` already prefers `snapshot.total_value_usd` for `portfolio_usd` / `cash_usd` / `btc_qty` ([data/index.ts:154-168](webapp/src/lib/data/index.ts)); only the sparkline slice and the `portfolioHoldings()` `else` fallback still depend on transactions + prices.
 
-- [ ] `webapp/src/lib/data/index.ts`
-  - [ ] Add `getSnapshotHistory(): Promise<ValuationSnapshot[]>` — selects `account, snapshot_at, btc_qty, stable_usd, btc_price_usd, total_value_usd` from `valuation_snapshots` ordered ascending by `snapshot_at`. Mirrors the column list in `getLatestSnapshots()` ([data/index.ts:103-127](webapp/src/lib/data/index.ts)); factor the row-mapping into a small `mapSnapshotRow(row)` helper shared by both to avoid drift.
-  - [ ] Rewrite `getEquityCurve()` ([data/index.ts:129-134](webapp/src/lib/data/index.ts)):
+- [x] `webapp/src/lib/data/index.ts`
+  - [x] Add `getSnapshotHistory(): Promise<ValuationSnapshot[]>` — selects `account, snapshot_at, btc_qty, stable_usd, btc_price_usd, total_value_usd` from `valuation_snapshots` ordered ascending by `snapshot_at`. Mirrors the column list in `getLatestSnapshots()` ([data/index.ts:103-127](webapp/src/lib/data/index.ts)); factor the row-mapping into a small `mapSnapshotRow(row)` helper shared by both to avoid drift.
+  - [x] Rewrite `getEquityCurve()` ([data/index.ts:129-134](webapp/src/lib/data/index.ts)):
     - New signature: `export async function getEquityCurve(): Promise<EquityPoint[]>` — drop the `fetch` parameter.
     - Body: `const [accounts, history] = await Promise.all([getAccounts(), getSnapshotHistory()]); return buildEquitySeriesFromSnapshots(history, startingMap(accounts));`
-  - [ ] Rewrite `getAccountSummaries()` ([data/index.ts:136-175](webapp/src/lib/data/index.ts)):
+  - [x] Rewrite `getAccountSummaries()` ([data/index.ts:136-175](webapp/src/lib/data/index.ts)):
     - New signature: `export async function getAccountSummaries(): Promise<AccountSummary[]>` — drop `fetch`.
     - Replace the `Promise.all` with `[accounts, snapshots, history]` (`getAccounts()` + `getLatestSnapshots()` + `getSnapshotHistory()`); drop `getTransactions()`, `fetchPrices()`, `buildEquitySeries()`, `heldAssets`.
     - Derive `curve` via `buildEquitySeriesFromSnapshots(history, startingMap(accounts))`. Sparkline tail logic (`SPARKLINE_POINTS = 12`) unchanged.
     - Drop the `else` fallback to `portfolioHoldings(...)` — both accounts now write a snapshot every run, so the fallback is dead. Reduce to a single snapshot-driven path. If `snapshot` is unexpectedly missing, fall back to `{ portfolio_usd: account.starting_capital_usd, cash_usd: account.starting_capital_usd, btc_qty: 0 }` (pre-first-run zero-trade state).
     - Replace `portfolioValueBTC(portfolio_usd, prices)` with `snapshot && snapshot.btc_price_usd > 0 ? portfolio_usd / snapshot.btc_price_usd : 0`.
-  - [ ] Remove imports: `buildEquitySeries`, `portfolioHoldings`, `portfolioValueBTC` from `$lib/metrics`; `fetchPrices` from `$lib/prices`.
-  - [ ] Delete `earliestInception()` ([data/index.ts:91-94](webapp/src/lib/data/index.ts)) — its only caller was `fetchPrices`. Keep `startingMap()` — still used by both rewritten functions.
+  - [x] Remove imports: `buildEquitySeries`, `portfolioHoldings`, `portfolioValueBTC` from `$lib/metrics`; `fetchPrices` from `$lib/prices`.
+  - [x] Delete `earliestInception()` ([data/index.ts:91-94](webapp/src/lib/data/index.ts)) — its only caller was `fetchPrices`. Keep `startingMap()` — still used by both rewritten functions.
 
-- [ ] `webapp/src/lib/metrics.ts`
-  - [ ] Add `buildEquitySeriesFromSnapshots(snapshots: ValuationSnapshot[], starting: Record<AccountKey, number>): EquityPoint[]`. Snapshots arrive ordered ascending by `snapshot_at`; group by `snapshot_at` and emit one `EquityPoint` per unique timestamp:
+- [x] `webapp/src/lib/metrics.ts`
+  - [x] Add `buildEquitySeriesFromSnapshots(snapshots: ValuationSnapshot[], starting: Record<AccountKey, number>): EquityPoint[]`. Snapshots arrive ordered ascending by `snapshot_at`; group by `snapshot_at` and emit one `EquityPoint` per unique timestamp:
     - `chameleon_usd` / `control_usd` = that account's `total_value_usd` at this timestamp, else the last carried-forward value (init = `starting[account]`).
     - `chameleon_btc` / `control_btc` = `total_value_usd / btc_price_usd` for that account at this timestamp, else carry forward (init = 0).
     - `chameleon_pct` / `control_pct` = `percentReturn(usd, starting[account])` reusing the existing helper at [metrics.ts:89-92](webapp/src/lib/metrics.ts).
     - Carry-forward keeps the chart honest if one account ever misses a snapshot (defensive — `scripts/run.py` writes both every run today).
 
-- [ ] `webapp/src/lib/types.ts` — no change. `ValuationSnapshot` and `EquityPoint` already cover every field used above.
+- [x] `webapp/src/lib/types.ts` — no change. `ValuationSnapshot` and `EquityPoint` already cover every field used above.
 
-- [ ] `webapp/src/routes/+page.server.ts` — drop `fetch` from the two updated calls:
+- [x] `webapp/src/routes/+page.server.ts` — drop `fetch` from the two updated calls:
   ```ts
   getAccountSummaries(),
   getEquityCurve(),
@@ -249,21 +249,21 @@ Confirmed call-site scope: the **only** caller of `getEquityCurve()` / `getAccou
 
 Same PR, after verifying the chart renders from real snapshot data. Delete in this order, grep-sweeping between steps:
 
-- [ ] `webapp/src/lib/metrics.ts`
-  - [ ] Delete `buildEquitySeries` ([metrics.ts:94-125](webapp/src/lib/metrics.ts)) — transaction-walking equity series.
-  - [ ] Delete `portfolioHoldings` ([metrics.ts:69-82](webapp/src/lib/metrics.ts)) — fallback branch is gone.
-  - [ ] Delete `portfolioValueUSD` ([metrics.ts:59-67](webapp/src/lib/metrics.ts)) — only consumer was the deleted equity path; verify with grep before removing.
-  - [ ] Delete `portfolioValueBTC` ([metrics.ts:84-87](webapp/src/lib/metrics.ts)) — replaced inline in `getAccountSummaries()`.
-  - [ ] Delete internal helpers `walk` ([metrics.ts:26-46](webapp/src/lib/metrics.ts)), `valueUSD` ([metrics.ts:48-57](webapp/src/lib/metrics.ts)), `priceAt` ([metrics.ts:5-13](webapp/src/lib/metrics.ts)), `currentPrice` ([metrics.ts:15-19](webapp/src/lib/metrics.ts)) — only used by the deleted public functions. Grep-confirm.
-  - [ ] **Keep** `percentReturn` — used by `buildEquitySeriesFromSnapshots` and `getAccountSummaries`.
+- [x] `webapp/src/lib/metrics.ts`
+  - [x] Delete `buildEquitySeries` ([metrics.ts:94-125](webapp/src/lib/metrics.ts)) — transaction-walking equity series.
+  - [x] Delete `portfolioHoldings` ([metrics.ts:69-82](webapp/src/lib/metrics.ts)) — fallback branch is gone.
+  - [x] Delete `portfolioValueUSD` ([metrics.ts:59-67](webapp/src/lib/metrics.ts)) — only consumer was the deleted equity path; verify with grep before removing.
+  - [x] Delete `portfolioValueBTC` ([metrics.ts:84-87](webapp/src/lib/metrics.ts)) — replaced inline in `getAccountSummaries()`.
+  - [x] Delete internal helpers `walk` ([metrics.ts:26-46](webapp/src/lib/metrics.ts)), `valueUSD` ([metrics.ts:48-57](webapp/src/lib/metrics.ts)), `priceAt` ([metrics.ts:5-13](webapp/src/lib/metrics.ts)), `currentPrice` ([metrics.ts:15-19](webapp/src/lib/metrics.ts)) — only used by the deleted public functions. Grep-confirm.
+  - [x] **Keep** `percentReturn` — used by `buildEquitySeriesFromSnapshots` and `getAccountSummaries`.
 
-- [ ] `webapp/src/lib/prices.ts` — delete the entire file. The only consumer was `data/index.ts`; after the rewrite it has none. Also remove its `PriceMap` / `PricePoint` types (defined in this file; grep first to confirm no other importers).
+- [x] `webapp/src/lib/prices.ts` — delete the entire file. The only consumer was `data/index.ts`; after the rewrite it has none. Also remove its `PriceMap` / `PricePoint` types (defined in this file; grep first to confirm no other importers).
 
-- [ ] `webapp/src/lib/data/index.ts` — confirm post-rewrite state: `earliestInception` deleted, `startingMap` kept, `buildEquitySeries` / `portfolioHoldings` / `portfolioValueBTC` / `fetchPrices` imports gone. The `Transaction` type import is still needed by `getTransactions()` — keep it.
+- [x] `webapp/src/lib/data/index.ts` — confirm post-rewrite state: `earliestInception` deleted, `startingMap` kept, `buildEquitySeries` / `portfolioHoldings` / `portfolioValueBTC` / `fetchPrices` imports gone. The `Transaction` type import is still needed by `getTransactions()` — keep it.
 
-- [ ] Stale tests: none currently in `webapp/src/**/*.test.ts`; if any appear, delete or rewrite against the snapshot path.
+- [x] Stale tests: none currently in `webapp/src/**/*.test.ts`; if any appear, delete or rewrite against the snapshot path.
 
-- [ ] **Final grep sweep** — each must return zero hits outside `git log`:
+- [x] **Final grep sweep** — each must return zero hits outside `git log`:
   - `buildEquitySeries\b` (the old name, not `FromSnapshots`)
   - `fetchPrices`
   - `earliestInception`

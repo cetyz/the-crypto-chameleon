@@ -6,10 +6,10 @@ import {
 } from '$lib/data';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ fetch }) => {
+export const load: PageServerLoad = async () => {
   const [summaries, equity, nextRun, chameleonTx, controlTx] = await Promise.all([
-    getAccountSummaries(fetch),
-    getEquityCurve(fetch),
+    getAccountSummaries(),
+    getEquityCurve(),
     getNextRun(),
     getTransactions('chameleon'),
     getTransactions('control')

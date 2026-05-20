@@ -17,11 +17,6 @@ export interface Transaction {
   price_usd: number;
 }
 
-export interface PricePoint {
-  timestamp: string;
-  usd: number;
-}
-
 export interface EquityPoint {
   timestamp: string;
   chameleon_pct: number;

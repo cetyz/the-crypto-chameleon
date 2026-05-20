@@ -7,14 +7,8 @@ import type {
   Transaction,
   ValuationSnapshot
 } from '$lib/types';
-import {
-  buildEquitySeries,
-  percentReturn,
-  portfolioHoldings,
-  portfolioValueBTC
-} from '$lib/metrics';
+import { buildEquitySeriesFromSnapshots, percentReturn } from '$lib/metrics';
 import { supabase } from '$lib/supabase';
-import { fetchPrices } from '$lib/prices';
 
 const SPARKLINE_POINTS = 12;
 
@@ -88,15 +82,28 @@ export async function getNextRun(): Promise<NextRun> {
   };
 }
 
-function earliestInception(accounts: Account[]): string {
-  if (accounts.length === 0) return new Date().toISOString();
-  return accounts.map((a) => a.inception_date).sort()[0];
-}
-
 function startingMap(accounts: Account[]): Record<AccountKey, number> {
   return {
     chameleon: accounts.find((a) => a.key === 'chameleon')?.starting_capital_usd ?? 0,
     control: accounts.find((a) => a.key === 'control')?.starting_capital_usd ?? 0
+  };
+}
+
+function mapSnapshotRow(row: {
+  account: string;
+  snapshot_at: string;
+  btc_qty: number | string;
+  stable_usd: number | string;
+  btc_price_usd: number | string;
+  total_value_usd: number | string;
+}): ValuationSnapshot {
+  return {
+    account: row.account as AccountKey,
+    snapshot_at: row.snapshot_at,
+    btc_qty: Number(row.btc_qty),
+    stable_usd: Number(row.stable_usd),
+    btc_price_usd: Number(row.btc_price_usd),
+    total_value_usd: Number(row.total_value_usd)
   };
 }
 
@@ -114,59 +121,41 @@ export async function getLatestSnapshots(): Promise<Record<AccountKey, Valuation
   for (const row of data ?? []) {
     const key = row.account as AccountKey;
     if (result[key] !== null) continue;
-    result[key] = {
-      account: key,
-      snapshot_at: row.snapshot_at,
-      btc_qty: Number(row.btc_qty),
-      stable_usd: Number(row.stable_usd),
-      btc_price_usd: Number(row.btc_price_usd),
-      total_value_usd: Number(row.total_value_usd)
-    };
+    result[key] = mapSnapshotRow(row);
   }
   return result;
 }
 
-export async function getEquityCurve(fetch: typeof globalThis.fetch): Promise<EquityPoint[]> {
-  const [accounts, transactions] = await Promise.all([getAccounts(), getTransactions()]);
-  const heldAssets = Array.from(new Set(transactions.map((t) => t.asset)));
-  const prices = await fetchPrices(heldAssets, earliestInception(accounts), fetch);
-  return buildEquitySeries(transactions, startingMap(accounts), prices);
+export async function getSnapshotHistory(): Promise<ValuationSnapshot[]> {
+  const { data, error } = await supabase
+    .from('valuation_snapshots')
+    .select('account, snapshot_at, btc_qty, stable_usd, btc_price_usd, total_value_usd')
+    .order('snapshot_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapSnapshotRow);
 }
 
-export async function getAccountSummaries(
-  fetch: typeof globalThis.fetch
-): Promise<AccountSummary[]> {
-  const [accounts, transactions, snapshots] = await Promise.all([
+export async function getEquityCurve(): Promise<EquityPoint[]> {
+  const [accounts, history] = await Promise.all([getAccounts(), getSnapshotHistory()]);
+  return buildEquitySeriesFromSnapshots(history, startingMap(accounts));
+}
+
+export async function getAccountSummaries(): Promise<AccountSummary[]> {
+  const [accounts, snapshots, history] = await Promise.all([
     getAccounts(),
-    getTransactions(),
-    getLatestSnapshots()
+    getLatestSnapshots(),
+    getSnapshotHistory()
   ]);
-  const heldAssets = Array.from(new Set(transactions.map((t) => t.asset)));
-  const prices = await fetchPrices(heldAssets, earliestInception(accounts), fetch);
-  const curve = buildEquitySeries(transactions, startingMap(accounts), prices);
+  const curve = buildEquitySeriesFromSnapshots(history, startingMap(accounts));
   const tailStart = Math.max(0, curve.length - SPARKLINE_POINTS);
 
   return accounts.map((account) => {
     const snapshot = snapshots[account.key];
-    let portfolio_usd: number;
-    let cash_usd: number;
-    let btc_qty: number;
-    if (snapshot) {
-      portfolio_usd = snapshot.total_value_usd;
-      cash_usd = snapshot.stable_usd;
-      btc_qty = snapshot.btc_qty;
-    } else {
-      const h = portfolioHoldings(
-        account.key,
-        transactions,
-        account.starting_capital_usd,
-        prices
-      );
-      portfolio_usd = h.total_usd;
-      cash_usd = h.cash_usd;
-      btc_qty = h.btc_qty;
-    }
-    const portfolio_btc = portfolioValueBTC(portfolio_usd, prices);
+    const portfolio_usd = snapshot ? snapshot.total_value_usd : account.starting_capital_usd;
+    const cash_usd = snapshot ? snapshot.stable_usd : account.starting_capital_usd;
+    const btc_qty = snapshot ? snapshot.btc_qty : 0;
+    const portfolio_btc =
+      snapshot && snapshot.btc_price_usd > 0 ? portfolio_usd / snapshot.btc_price_usd : 0;
     const pct_return = percentReturn(portfolio_usd, account.starting_capital_usd);
     const key = account.key === 'chameleon' ? 'chameleon_pct' : 'control_pct';
     const sparkline = curve.slice(tailStart).map((p) => p[key] as number);
