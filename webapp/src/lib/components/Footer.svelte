@@ -3,9 +3,9 @@
   const formatted = $derived(new Date(lastUpdated).toLocaleString());
 </script>
 
-<footer class="border-t border-slate-800 mt-12">
-  <div class="mx-auto max-w-6xl px-4 py-6 text-xs text-slate-500 space-y-1">
-    <p>Not financial advice. This dashboard tracks real trades for transparency and entertainment.</p>
-    <p>Data source: Supabase (currently mocked). Last updated: {formatted}.</p>
+<footer class="border-t hairline mt-16">
+  <div class="mx-auto max-w-5xl px-5 sm:px-8 py-8 text-sm text-ink-faded space-y-2" style="max-width: 65ch;">
+    <p>Not financial advice. Two real accounts, every trade on the table.</p>
+    <p class="text-xs">Last updated <span class="fig">{formatted}</span>.</p>
   </div>
 </footer>

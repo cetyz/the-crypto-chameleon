@@ -11,14 +11,17 @@
 
 <Header />
 
-<main class="py-6 space-y-6">
+<main>
   <HeadlineTiles summaries={data.summaries} />
   <EquityChart points={data.equity} />
   <NextRun scheduledAt={data.nextRun.scheduled_at} lastUpdated={data.nextRun.last_updated} />
 
-  <section class="mx-auto max-w-6xl px-4 grid gap-4 md:grid-cols-2">
-    <TransactionTable title="Chameleon" transactions={data.chameleonTx} accent="#10b981" />
-    <TransactionTable title="Control" transactions={data.controlTx} accent="#6366f1" />
+  <section class="mx-auto max-w-5xl px-5 sm:px-8 py-10">
+    <h2 class="serif text-2xl mb-8">Transaction log</h2>
+    <div class="grid gap-12 md:grid-cols-2 md:gap-10">
+      <TransactionTable title="Chameleon" transactions={data.chameleonTx} isChameleon />
+      <TransactionTable title="Control" transactions={data.controlTx} />
+    </div>
   </section>
 </main>
 

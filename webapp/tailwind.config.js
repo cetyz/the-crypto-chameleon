@@ -4,8 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        chameleon: '#10b981',
-        control: '#6366f1'
+        ink: {
+          deep: 'oklch(18% 0.012 60)',
+          settled: 'oklch(94% 0.008 80)',
+          faded: 'oklch(68% 0.012 70)',
+          rule: 'oklch(34% 0.012 60)'
+        },
+        chameleon: 'oklch(74% 0.13 130)'
+      },
+      fontFamily: {
+        serif: ['Newsreader', 'ui-serif', 'Georgia', 'serif'],
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
       }
     }
   },

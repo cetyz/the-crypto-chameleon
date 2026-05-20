@@ -4,8 +4,8 @@
   let {
     title,
     transactions,
-    accent
-  }: { title: string; transactions: Transaction[]; accent: string } = $props();
+    isChameleon = false
+  }: { title: string; transactions: Transaction[]; isChameleon?: boolean } = $props();
 
   const PAGE = 8;
   let visible = $state(PAGE);
@@ -19,49 +19,44 @@
   }
 </script>
 
-<div class="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
-    <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: {accent}">
+<div>
+  <div class="flex items-baseline justify-between pb-3">
+    <h3
+      class="serif text-lg inline-block pb-1 {isChameleon ? 'border-b border-chameleon' : ''}"
+    >
       {title}
     </h3>
-    <span class="text-xs text-slate-500">{transactions.length} trades</span>
+    <span class="label">{transactions.length} trades</span>
   </div>
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="text-xs text-slate-500 bg-slate-950/50">
-        <tr>
-          <th class="text-left px-3 py-2 font-medium">Date</th>
-          <th class="text-left px-3 py-2 font-medium">Side</th>
-          <th class="text-left px-3 py-2 font-medium">Asset</th>
-          <th class="text-right px-3 py-2 font-medium">Amount</th>
-          <th class="text-right px-3 py-2 font-medium">Price</th>
-          <th class="text-right px-3 py-2 font-medium">USD Value</th>
+  <table class="w-full text-sm border-t hairline">
+    <thead>
+      <tr class="border-b hairline">
+        <th class="text-left py-3 pr-3 label font-medium">Date</th>
+        <th class="text-left py-3 pr-3 label font-medium">Side</th>
+        <th class="text-left py-3 pr-3 label font-medium">Asset</th>
+        <th class="text-right py-3 pr-3 label font-medium">Amount</th>
+        <th class="text-right py-3 pr-3 label font-medium">Price</th>
+        <th class="text-right py-3 label font-medium">USD</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#each shown as tx (tx.id)}
+        <tr class="border-b hairline">
+          <td class="py-3 pr-3 fig text-ink-faded">{fmtDate(tx.timestamp)}</td>
+          <td class="py-3 pr-3 uppercase text-xs tracking-wider" style="letter-spacing: 0.06em;">
+            {tx.side}
+          </td>
+          <td class="py-3 pr-3">{tx.asset}</td>
+          <td class="py-3 pr-3 text-right fig">{tx.amount.toFixed(6)}</td>
+          <td class="py-3 pr-3 text-right fig text-ink-faded">{fmtUSD(tx.price_usd)}</td>
+          <td class="py-3 text-right fig">{fmtUSD(tx.amount * tx.price_usd)}</td>
         </tr>
-      </thead>
-      <tbody>
-        {#each shown as tx (tx.id)}
-          <tr class="border-t border-slate-800/50">
-            <td class="px-3 py-2 text-slate-300">{fmtDate(tx.timestamp)}</td>
-            <td class="px-3 py-2 {tx.side === 'buy' ? 'text-emerald-400' : 'text-rose-400'}">
-              {tx.side}
-            </td>
-            <td class="px-3 py-2 text-slate-200">{tx.asset}</td>
-            <td class="px-3 py-2 text-right font-mono text-slate-200">{tx.amount.toFixed(6)}</td>
-            <td class="px-3 py-2 text-right font-mono text-slate-400">{fmtUSD(tx.price_usd)}</td>
-            <td class="px-3 py-2 text-right font-mono text-slate-200">{fmtUSD(tx.amount * tx.price_usd)}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-  </div>
+      {/each}
+    </tbody>
+  </table>
   {#if visible < transactions.length}
-    <div class="border-t border-slate-800 p-3 text-center">
-      <button
-        class="text-xs text-slate-400 hover:text-white"
-        onclick={() => (visible += PAGE)}
-      >
-        Load more
-      </button>
+    <div class="pt-4">
+      <button class="toggle" onclick={() => (visible += PAGE)}>Load more</button>
     </div>
   {/if}
 </div>

@@ -49,6 +49,15 @@ The dashboard is a transparency tool. Anyone can view. No authentication needed 
 ### Keep it barebones
 The user is new to development and values simplicity. Prefer the fewest moving parts that work. Defer abstractions, frameworks-within-frameworks, and premature configuration surfaces until a concrete need appears.
 
+## Design Context
+
+Strategic and visual direction for the SvelteKit dashboard lives in two root files:
+
+- **`PRODUCT.md`** — register (brand), users, purpose, brand personality (curious, candid, deadpan), anti-references, strategic principles, accessibility baseline.
+- **`DESIGN.md`** — seed visual system: warm dark editorial surface ("The Lab Notebook, Bound in Leather"), serif display + sans body + tabular mono figures, single Chameleon accent ≤10%, flat surface with 1px hairlines, no cards or shadows.
+
+Read both before any UI work on `/webapp`. The current `webapp/src/app.css` uses cold `slate-950`, which `DESIGN.md` explicitly rejects — replace with a warm near-black on next styling pass. `DESIGN.md` is marked `<!-- SEED -->`; re-run `/impeccable document` once components have real styles to extract concrete tokens.
+
 ## Deliberately deferred
 These are acknowledged as open and will be decided as the project evolves:
 - Specific trading analysis logic and decision rules for the chameleon account.

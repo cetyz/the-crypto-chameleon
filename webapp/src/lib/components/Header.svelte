@@ -1,16 +1,14 @@
-<header class="border-b border-slate-800">
-  <div class="mx-auto max-w-6xl px-4 py-5 flex flex-wrap items-center justify-between gap-3">
+<header class="border-b hairline">
+  <div class="mx-auto max-w-5xl px-5 sm:px-8 py-8 flex flex-wrap items-end justify-between gap-4">
     <div>
-      <h1 class="text-2xl font-bold tracking-tight">
-        <span class="text-chameleon">The</span> Crypto Chameleon
-      </h1>
-      <p class="text-sm text-slate-400">
-        Tracking an algorithmic trader vs. a dumb DCA, in public.
+      <h1 class="serif text-3xl sm:text-4xl leading-none">The Crypto Chameleon</h1>
+      <p class="mt-2 text-sm text-ink-faded max-w-[60ch]">
+        One algorithmic trader, one weekly DCA, two real accounts. Every receipt below.
       </p>
     </div>
-    <nav class="flex items-center gap-4 text-sm">
-      <a href="https://t.me/" class="text-slate-300 hover:text-white">Telegram</a>
-      <a href="https://github.com/" class="text-slate-300 hover:text-white">GitHub</a>
+    <nav class="flex items-center gap-5 label">
+      <a href="https://t.me/" class="hover:text-ink-settled transition-colors">Telegram</a>
+      <a href="https://github.com/" class="hover:text-ink-settled transition-colors">GitHub</a>
     </nav>
   </div>
 </header>

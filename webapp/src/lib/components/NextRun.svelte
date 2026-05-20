@@ -16,12 +16,15 @@
   const lastStr = $derived(new Date(lastUpdated).toLocaleString());
 </script>
 
-<section class="mx-auto max-w-6xl px-4">
-  <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3 text-sm">
-    <div>
-      <span class="text-slate-400">Next scheduled run in </span>
-      <span class="font-mono text-white">{d}d {h}h {m}m {s}s</span>
+<section class="mx-auto max-w-5xl px-5 sm:px-8 border-t border-b hairline">
+  <div class="flex flex-wrap items-baseline justify-between gap-2 py-4">
+    <div class="flex items-baseline gap-3">
+      <span class="label">Next run in</span>
+      <span class="fig text-base">{d}d {h}h {m}m {s}s</span>
     </div>
-    <div class="text-slate-500 text-xs">Last updated {lastStr}</div>
+    <div class="flex items-baseline gap-3">
+      <span class="label">Last updated</span>
+      <span class="fig text-xs text-ink-faded">{lastStr}</span>
+    </div>
   </div>
 </section>
