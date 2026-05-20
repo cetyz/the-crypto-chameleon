@@ -195,5 +195,93 @@ The v1 plan above did not specify starting capital or a live valuation path. Wit
 
 ### Out of scope (follow-ups)
 
-- Switching the equity chart and sparklines from transaction-walked to snapshot-history-based — needs ~12 weeks of accumulated snapshots first.
 - Higher-frequency snapshots (a second cron line) for a more responsive dashboard.
+
+## Snapshot-based equity series (webapp)
+
+### Context
+
+The VM side of valuation tracking is done: `scripts/run.py`'s `capture_balance()` (line 363) and `upsert_snapshot()` (line 161) write one `valuation_snapshots` row per `(account, run_id)` on every weekly run, and `main()` runs the snapshot loop after the trade-decision loop (lines 423-431). On the webapp side, [webapp/src/lib/data/index.ts](webapp/src/lib/data/index.ts) already exposes `getLatestSnapshots()` (line 103) and `getAccountSummaries()` (line 136) prefers snapshot `total_value_usd` for the "Current value" tile.
+
+What's still transaction-walked:
+- `getEquityCurve()` ([data/index.ts:129](webapp/src/lib/data/index.ts)) builds `EquityPoint[]` via `buildEquitySeries(transactions, …)`, which requires `fetchPrices()` to backfill historical OHLC per held asset to inception.
+- The sparkline slice in `getAccountSummaries()` ([data/index.ts:172](webapp/src/lib/data/index.ts)) reads the same transaction-walked curve.
+
+With no trades placed yet (`decide_chameleon` returns `None`, `CONTROL_DCA.enabled = False`), `transactions` is empty → `heldAssets` is empty → `fetchPrices` returns nothing → the chart and sparklines render blank. The earlier "needs ~12 weeks of snapshots first" note was overcautious: snapshots are the better source of truth for this dashboard regardless of trade activity (single computed value per run, no external price backfill, survives zero-trade weeks, reflects mark-to-market between runs).
+
+Goal: switch the equity chart and sparklines to read `valuation_snapshots` history so the dashboard begins populating from the first weekly snapshot onward, with no changes to `scripts/run.py`. Then remove the now-dead transaction-replay path.
+
+### Files to modify
+
+Confirmed call-site scope: the **only** caller of `getEquityCurve()` / `getAccountSummaries()` is [webapp/src/routes/+page.server.ts](webapp/src/routes/+page.server.ts) (grep verified). `getAccountSummaries()` already prefers `snapshot.total_value_usd` for `portfolio_usd` / `cash_usd` / `btc_qty` ([data/index.ts:154-168](webapp/src/lib/data/index.ts)); only the sparkline slice and the `portfolioHoldings()` `else` fallback still depend on transactions + prices.
+
+- [ ] `webapp/src/lib/data/index.ts`
+  - [ ] Add `getSnapshotHistory(): Promise<ValuationSnapshot[]>` — selects `account, snapshot_at, btc_qty, stable_usd, btc_price_usd, total_value_usd` from `valuation_snapshots` ordered ascending by `snapshot_at`. Mirrors the column list in `getLatestSnapshots()` ([data/index.ts:103-127](webapp/src/lib/data/index.ts)); factor the row-mapping into a small `mapSnapshotRow(row)` helper shared by both to avoid drift.
+  - [ ] Rewrite `getEquityCurve()` ([data/index.ts:129-134](webapp/src/lib/data/index.ts)):
+    - New signature: `export async function getEquityCurve(): Promise<EquityPoint[]>` — drop the `fetch` parameter.
+    - Body: `const [accounts, history] = await Promise.all([getAccounts(), getSnapshotHistory()]); return buildEquitySeriesFromSnapshots(history, startingMap(accounts));`
+  - [ ] Rewrite `getAccountSummaries()` ([data/index.ts:136-175](webapp/src/lib/data/index.ts)):
+    - New signature: `export async function getAccountSummaries(): Promise<AccountSummary[]>` — drop `fetch`.
+    - Replace the `Promise.all` with `[accounts, snapshots, history]` (`getAccounts()` + `getLatestSnapshots()` + `getSnapshotHistory()`); drop `getTransactions()`, `fetchPrices()`, `buildEquitySeries()`, `heldAssets`.
+    - Derive `curve` via `buildEquitySeriesFromSnapshots(history, startingMap(accounts))`. Sparkline tail logic (`SPARKLINE_POINTS = 12`) unchanged.
+    - Drop the `else` fallback to `portfolioHoldings(...)` — both accounts now write a snapshot every run, so the fallback is dead. Reduce to a single snapshot-driven path. If `snapshot` is unexpectedly missing, fall back to `{ portfolio_usd: account.starting_capital_usd, cash_usd: account.starting_capital_usd, btc_qty: 0 }` (pre-first-run zero-trade state).
+    - Replace `portfolioValueBTC(portfolio_usd, prices)` with `snapshot && snapshot.btc_price_usd > 0 ? portfolio_usd / snapshot.btc_price_usd : 0`.
+  - [ ] Remove imports: `buildEquitySeries`, `portfolioHoldings`, `portfolioValueBTC` from `$lib/metrics`; `fetchPrices` from `$lib/prices`.
+  - [ ] Delete `earliestInception()` ([data/index.ts:91-94](webapp/src/lib/data/index.ts)) — its only caller was `fetchPrices`. Keep `startingMap()` — still used by both rewritten functions.
+
+- [ ] `webapp/src/lib/metrics.ts`
+  - [ ] Add `buildEquitySeriesFromSnapshots(snapshots: ValuationSnapshot[], starting: Record<AccountKey, number>): EquityPoint[]`. Snapshots arrive ordered ascending by `snapshot_at`; group by `snapshot_at` and emit one `EquityPoint` per unique timestamp:
+    - `chameleon_usd` / `control_usd` = that account's `total_value_usd` at this timestamp, else the last carried-forward value (init = `starting[account]`).
+    - `chameleon_btc` / `control_btc` = `total_value_usd / btc_price_usd` for that account at this timestamp, else carry forward (init = 0).
+    - `chameleon_pct` / `control_pct` = `percentReturn(usd, starting[account])` reusing the existing helper at [metrics.ts:89-92](webapp/src/lib/metrics.ts).
+    - Carry-forward keeps the chart honest if one account ever misses a snapshot (defensive — `scripts/run.py` writes both every run today).
+
+- [ ] `webapp/src/lib/types.ts` — no change. `ValuationSnapshot` and `EquityPoint` already cover every field used above.
+
+- [ ] `webapp/src/routes/+page.server.ts` — drop `fetch` from the two updated calls:
+  ```ts
+  getAccountSummaries(),
+  getEquityCurve(),
+  ```
+  `fetch` itself can stay in the `load` destructure or be removed; SvelteKit is fine either way. No other call sites (`+layout.server.ts`, `+page.svelte`, components) reference these functions.
+
+### Cleanup of redundant code
+
+Same PR, after verifying the chart renders from real snapshot data. Delete in this order, grep-sweeping between steps:
+
+- [ ] `webapp/src/lib/metrics.ts`
+  - [ ] Delete `buildEquitySeries` ([metrics.ts:94-125](webapp/src/lib/metrics.ts)) — transaction-walking equity series.
+  - [ ] Delete `portfolioHoldings` ([metrics.ts:69-82](webapp/src/lib/metrics.ts)) — fallback branch is gone.
+  - [ ] Delete `portfolioValueUSD` ([metrics.ts:59-67](webapp/src/lib/metrics.ts)) — only consumer was the deleted equity path; verify with grep before removing.
+  - [ ] Delete `portfolioValueBTC` ([metrics.ts:84-87](webapp/src/lib/metrics.ts)) — replaced inline in `getAccountSummaries()`.
+  - [ ] Delete internal helpers `walk` ([metrics.ts:26-46](webapp/src/lib/metrics.ts)), `valueUSD` ([metrics.ts:48-57](webapp/src/lib/metrics.ts)), `priceAt` ([metrics.ts:5-13](webapp/src/lib/metrics.ts)), `currentPrice` ([metrics.ts:15-19](webapp/src/lib/metrics.ts)) — only used by the deleted public functions. Grep-confirm.
+  - [ ] **Keep** `percentReturn` — used by `buildEquitySeriesFromSnapshots` and `getAccountSummaries`.
+
+- [ ] `webapp/src/lib/prices.ts` — delete the entire file. The only consumer was `data/index.ts`; after the rewrite it has none. Also remove its `PriceMap` / `PricePoint` types (defined in this file; grep first to confirm no other importers).
+
+- [ ] `webapp/src/lib/data/index.ts` — confirm post-rewrite state: `earliestInception` deleted, `startingMap` kept, `buildEquitySeries` / `portfolioHoldings` / `portfolioValueBTC` / `fetchPrices` imports gone. The `Transaction` type import is still needed by `getTransactions()` — keep it.
+
+- [ ] Stale tests: none currently in `webapp/src/**/*.test.ts`; if any appear, delete or rewrite against the snapshot path.
+
+- [ ] **Final grep sweep** — each must return zero hits outside `git log`:
+  - `buildEquitySeries\b` (the old name, not `FromSnapshots`)
+  - `fetchPrices`
+  - `earliestInception`
+  - `portfolioHoldings`
+  - `portfolioValueUSD`
+  - `portfolioValueBTC`
+  - `PriceMap`, `PricePoint`
+
+The intent stays conservative: rewrite first, verify the chart populates from real snapshot data, then delete. A single follow-up commit for the cleanup is fine if it makes the diff easier to review.
+
+### Verification
+
+- [ ] With at least one `valuation_snapshots` row per account in Supabase (already true if the weekly cron has fired), `npm run dev` in `webapp/` and load `/`: equity chart shows one point per run, both accounts plotted; sparklines on the account-summary cards show the same series.
+- [ ] Manually trigger another snapshot (`python -m scripts.run` on the VM with `DRY_RUN=true`) and reload: a second point appears on the chart and sparkline without any code change.
+- [ ] "Current value" tile still matches `total_value_usd` from the latest snapshot (no regression from the unchanged snapshot branch).
+- [ ] After cleanup commit: `npm run check` / `npm run build` succeed; no dead-code warnings; grepping for `buildEquitySeries`, `fetchPrices`, and `earliestInception` returns zero hits outside of git history.
+
+### Out of scope (still)
+
+- Higher-frequency snapshot cadence.
+- Backfilling pre-snapshot equity (impossible by definition — both accounts started with the first snapshot).
