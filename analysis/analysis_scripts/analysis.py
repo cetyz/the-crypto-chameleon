@@ -1,5 +1,5 @@
 """
-DCA vs Signal-Strategy Backtest — BTC, 2024-01-01 to 2026-04-30
+DCA vs Signal-Strategy Backtest — BTC, 2020-03-01 to 2026-04-30
 ================================================================
 Arm A (DCA):       $50 deposited on the 1st of each month, $10 spent every
                    Tuesday at that day's UTC close. Leftover cash rolls over.
@@ -31,10 +31,10 @@ ACTION_LOG_CSV    = os.path.join(HERE, "action_log.csv")
 REPORT_MD         = os.path.join(HERE, "analysis_report.md")
 POSTMORTEM_MD     = os.path.join(HERE, "postmortem_report.md")
 
-START             = pd.Timestamp("2024-01-01", tz="UTC")
+START             = pd.Timestamp("2020-03-01", tz="UTC")
 END               = pd.Timestamp("2026-04-30 23:59:59", tz="UTC")
-N_MONTHS          = 28        # 2024-01 through 2026-04 inclusive
-WARMUP_START      = pd.Timestamp("2023-06-01", tz="UTC")
+N_MONTHS          = 74        # 2020-03 through 2026-04 inclusive
+WARMUP_START      = pd.Timestamp("2019-09-08", tz="UTC")
 FUNDING_FETCH_END = pd.Timestamp("2026-05-01", tz="UTC")
 
 MONTHLY_DEPOSIT   = 50.0
@@ -305,7 +305,7 @@ def plot_equity(dca_df, strat_df, action_log):
         merged = fires.merge(strat_df[["date", "value"]], on="date", how="left")
         ax.scatter(merged["date"], merged["value"], marker="^", s=60,
                    color="orange", zorder=5, label="Patience fire")
-    ax.set_title("DCA vs Signal Strategy — BTC, 2024-01-01 to 2026-04-30")
+    ax.set_title("DCA vs Signal Strategy — BTC, 2020-03-01 to 2026-04-30")
     ax.set_ylabel("Portfolio value (USD, cash + BTC marked-to-market)")
     ax.legend()
     ax.grid(alpha=0.3)

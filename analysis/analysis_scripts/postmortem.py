@@ -27,7 +27,7 @@ from analysis import (
     trend_state, funding_state,
     simulate_dca, simulate_strategy,
     max_drawdown,
-    POLICY, START, END, N_MONTHS, MONTHLY_DEPOSIT, FEE_RATE,
+    POLICY, START, END, N_MONTHS, MONTHLY_DEPOSIT, FEE_RATE, WARMUP_START,
     SMA_WEEKS, PATIENCE_LIMIT,
 )
 
@@ -132,7 +132,7 @@ def main():
     hourly = load_btc_hourly()
     daily_px = daily_closes(hourly)
     weekly_px_full = weekly_closes(hourly)
-    weekly_px = weekly_px_full[(weekly_px_full.index >= pd.Timestamp("2023-06-01", tz="UTC"))
+    weekly_px = weekly_px_full[(weekly_px_full.index >= WARMUP_START)
                                & (weekly_px_full.index <= END)]
     funding = fetch_funding()
     weekly_fund = weekly_funding_annpct(funding, weekly_px.index)

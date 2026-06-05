@@ -157,9 +157,9 @@ Single file, top-to-bottom readable. Sections in order:
 
 ## Open items deferred (not blocking this plan)
 
-- [ ] Chameleon strategy logic (decide_chameleon body).
-- [ ] Control DCA params (asset, frequency). _Notional resolved: $50 seed per account — see "Capital seeding & live valuation" below._
-- [ ] Whether to denominate DCA in a stablecoin pair (`BTC_USDT`) vs USD (`BTC_USD`) — depends on what's tradable from each account; check with `get_instruments()` once.
+- [x] Chameleon strategy logic (decide_chameleon body). _Resolved: v8 funded basket, `target_w = 0.90`, `band = 0.05` — see "Going live: monthly deposits + real trades" below._
+- [x] Control DCA params (asset, frequency). _Resolved: spend entire available stable balance into `BTC_USD` on the post-deposit Tuesday — see "Going live" below._
+- [ ] Whether to denominate DCA in a stablecoin pair (`BTC_USDT`) vs USD (`BTC_USD`) — depends on what's tradable from each account; check with `get_instruments()` once (folded into the "Going live" pre-flight below).
 - [x] Dashboard deployment to Vercel — the webapp shell already exists; once the first run row lands in Supabase, this becomes the next priority.
 - [x] Update `database_instructions.md`'s "GitHub Actions" references to "VM + cron + .env" (small, do alongside).
 
@@ -285,3 +285,124 @@ The intent stays conservative: rewrite first, verify the chart populates from re
 
 - Higher-frequency snapshot cadence.
 - Backfilling pre-snapshot equity (impossible by definition — both accounts started with the first snapshot).
+
+## Going live: monthly deposits + real trades
+
+### Context
+
+The DRY_RUN pipeline is verified end-to-end: the weekly Tuesday cron fires
+[scripts/run.py](scripts/run.py), `runs` / `transactions` / `valuation_snapshots`
+rows land in Supabase, and both Telegram channels behave. What's still inert is the
+money: `decide_chameleon` returns `None` and the `CONTROL_DCA` block is disabled, so
+**no real buying or selling happens**. This section closes that last gap.
+
+Three behaviours go live together:
+
+- **Deposits.** $50 USD is deposited into *each* arm on the last Friday of every
+  month. The bot records these into the existing `capital_events` table itself,
+  idempotently, so the dashboard's "Capital invested" denominator stays honest and
+  the % return isn't inflated by counting deposits as gains. (Trading does not
+  depend on these rows — both arms read live on-exchange balances — they exist
+  purely for accounting.)
+- **Control arm.** On the first Tuesday after a deposit, it spends its entire
+  available stable balance on `BTC_USD`. A simple DCA, robust to dust and to a
+  missed run (cash deploys the next run rather than being stranded).
+- **Chameleon arm.** Implements [analysis/strategies/strategy_v8.md](analysis/strategies/strategy_v8.md) —
+  the funded two-way basket — at **`target_w = 0.90`, `band = 0.05` each side**: hold
+  while BTC weight sits in 0.85–0.95, otherwise rebalance *all the way back* to 0.90
+  (sell if over, buy if under). A landed deposit just shows up as cash that the next
+  rebalance redistributes; no special-casing.
+
+### Decisions locked
+
+- Deposits auto-recorded by the bot into `capital_events`, idempotently (safe to re-run) — not manual, not balance-detected.
+- Control buys with its **entire available stable balance** (when ≥ BTC_USD min notional) — not a fixed $50.
+- Chameleon: v8 two-way rebalance, `target_w = 0.90`, no-trade `band = 0.05`; on breach, rebalance **to target**, not to the band edge.
+- Rollout: **go live immediately** — flip `DRY_RUN=false` on merge + pull; the next Tuesday run places real trades.
+
+### Schema change (apply once in Supabase SQL Editor)
+
+- [ ] Add idempotency to `capital_events` so the bot can re-attempt the same monthly insert safely:
+  ```sql
+  alter table public.capital_events
+    add constraint capital_events_account_occurred_kind_key
+    unique (account, occurred_at, kind);
+  ```
+  Mirrors the `transactions.client_oid` discipline — a retry trips the unique and is swallowed (`23505`) instead of double-recording.
+- [ ] No other schema change. Deposits feed the existing "Capital invested" sum and % return baseline; the webapp's `getAccounts()` already reads `capital_events`.
+
+### Pre-flight (one-time, read-only, before code)
+
+- [ ] Use the **notebooklm** skill against the Crypto.com notebook (per CLAUDE.md "NotebookLM-first") to confirm:
+  - `create_market_order` market-BUY `notional` semantics — is the taker fee deducted *from* the notional or charged *on top*? (Drives `CONTROL_FEE_BUFFER` below.)
+  - `BTC_USD` **min order size / min notional**, `quantity_decimals`, and notional precision.
+- [ ] Call `get_instruments()` once and record `BTC_USD`'s min notional + decimals. Hardcode as constants (barebones — instrument metadata is stable). This also resolves the deferred `BTC_USD` vs `BTC_USDT` denomination question above.
+- [ ] Confirm both sub-accounts currently hold the stable balance you expect (seed ± any deposits already made).
+
+### Code — [scripts/run.py](scripts/run.py)
+
+**Constants**
+- [ ] `MONTHLY_DEPOSIT_USD = Decimal("50")`
+- [ ] `CHAMELEON_TARGET_W = Decimal("0.90")`, `CHAMELEON_BAND = Decimal("0.05")`
+- [ ] `BTC_USD_MIN_NOTIONAL`, `BTC_USD_QTY_DECIMALS`, `BTC_USD_NOTIONAL_DECIMALS` from pre-flight.
+- [ ] `CONTROL_FEE_BUFFER = Decimal("0.005")` — shave the control buy so the fee doesn't overdraw the balance (final value pending the NotebookLM answer).
+- [ ] Retire the `CONTROL_DCA` disabled block — replaced by balance-driven logic.
+
+**Deposit helpers (new)**
+- [ ] `last_friday_of_month(year, month) -> date`.
+- [ ] `most_recent_deposit_date(now) -> date` — last Friday of the current month if `<= now.date()`, else last Friday of the previous month. Use that date at `00:00 UTC` as `occurred_at` so the value is deterministic and the unique constraint makes re-runs no-ops.
+- [ ] `record_due_deposits(sb, now)` — for the most-recent deposit date, attempt `insert` into `capital_events` (`kind='deposit'`, `amount_usd=50`, `note='monthly auto-deposit'`) for **both** accounts; catch `APIError` code `23505` and continue (reuse the existing `insert_transaction` 23505 pattern). No date arithmetic against the previous run is needed — idempotency makes "attempt every run" safe.
+
+**Shared balance read (refactor)**
+- [ ] Factor the BTC/stable/price read out of `capture_balance` into `read_position(cdc) -> (btc_qty, stable_usd, btc_price)` so `decide_chameleon`, `decide_control`, and `capture_balance` share one code path (no drift in how balances are parsed). `capture_balance` keeps building the snapshot dict on top of it.
+
+**Rounding helpers (new)**
+- [ ] `floor_to_qty(x)` / `floor_to_notional(x)` — `Decimal.quantize(..., rounding=ROUND_DOWN)` to instrument precision. Flooring keeps orders inside the available balance and avoids precision rejects.
+
+**`decide_control(cdc)`**
+- [ ] `btc_qty, stable_usd, price = read_position(cdc)`
+- [ ] `spend = floor_to_notional(stable_usd * (1 - CONTROL_FEE_BUFFER))`
+- [ ] `if spend < BTC_USD_MIN_NOTIONAL: return None` (no fresh deposit cash to deploy)
+- [ ] `return OrderSpec(instrument="BTC_USD", side="BUY", purpose="dca", notional=spend)`
+- No calendar logic — control's steady state is ~0 cash (it spends everything monthly), so this fires only when a deposit lands, and is robust to a missed Tuesday.
+
+**`decide_chameleon(cdc)` — v8 funded basket**
+- [ ] `btc_qty, stable_usd, price = read_position(cdc)`
+- [ ] `btc_value = btc_qty * price`; `total = btc_value + stable_usd`; `if total <= 0: return None`
+- [ ] `target_value = CHAMELEON_TARGET_W * total`; `drift = btc_value - target_value`; `thresh = CHAMELEON_BAND * total`
+- [ ] `if drift > thresh:` BTC too heavy → SELL down to target. `qty = floor_to_qty(drift / price)`; `if qty < min: return None`; `return OrderSpec(side="SELL", purpose="rebal", quantity=qty)`
+- [ ] `elif drift < -thresh:` BTC too light → BUY up to target. `notional = floor_to_notional(-drift)`; `if notional < min: return None`; `return OrderSpec(side="BUY", purpose="rebal", notional=notional)`
+- [ ] `else: return None` (weight inside 0.85–0.95 → hold; the fee-saving band)
+- Code-comment the safety proof: the buy size `-drift = 0.9·cash − 0.1·btc_value < cash`, so the rebalance can never overspend the cash sleeve; only min-notional/precision flooring is needed, no fee buffer.
+
+**`main()`**
+- [ ] Call `record_due_deposits(sb, scheduled_for)` **right after `upsert_run`**, before the trade loop — deposit is on the books before either arm acts and before the snapshot.
+- [ ] Trade loop and snapshot loop otherwise unchanged (`decide_fn` → `execute_trade`; then `capture_balance` → `upsert_snapshot`).
+- [ ] (Optional safeguard) after snapshots, if a deposit was recorded this run but the post-trade combined balance is materially short of expected, `tg_private` a non-blocking warning.
+- [ ] `client_oid` lengths fine: `20260630-chameleon-rebal` = 24 chars (≤36).
+
+**No change** to `execute_trade` (BUY-by-notional / SELL-by-quantity, DRY_RUN, 30s fill polling, idempotent insert already correct) or to the Telegram / run-status plumbing.
+
+### Config / VM
+
+- [ ] `.env` on VM: set `DRY_RUN=false`. All other vars already present.
+- [ ] `git pull` on the VM; `pip install -r requirements.txt` (no new deps). The existing Tuesday cron fires the first live run.
+
+### Verification
+
+- [ ] **Date helpers** (local): `last_friday_of_month` / `most_recent_deposit_date` against a few known months, including a Tuesday that falls *before* that month's last Friday (must pick the previous month's Friday).
+- [ ] **Chameleon decision** (local, synthetic balances): weight 1.00 → SELL; weight ~0.50 (fresh deposit) → BUY; weight 0.90 → None; weight 0.93 → None (inside band).
+- [ ] **Deposit idempotency**: run `record_due_deposits` twice for the same month → exactly one `capital_events` row per account (23505 swallowed).
+- [ ] **Run idempotency**: re-run with the same `scheduled_for` → no duplicate `transactions` (unique `client_oid`), one snapshot per `(account, run_id)`.
+- [ ] **Dashboard**: after a deposit run, "Capital invested" rises by $50 per account; % return recomputes against the new denominator.
+- [ ] **First live Tuesday** (`DRY_RUN=false`):
+  - control: one buy tx spending ~full stable balance; snapshot `stable_usd ≈ 0`, `btc_qty` up.
+  - chameleon: if outside band, one rebal tx and snapshot weight ≈ 0.90; else no tx and weight within 0.85–0.95.
+  - `get_order_detail` polled to `FILLED`; `raw` stored; public Telegram success post; private channel silent.
+- [ ] **Failure drill**: temporarily break a key → private Telegram alert + non-zero exit (already handled by `main()`'s try/except).
+
+### Honest caveats
+
+- **Phantom-deposit risk** (accepted trade-off of auto-record): the bot records the scheduled $50 from the calendar, not from a confirmed transfer. If a manual deposit is skipped, `capital_events` overstates invested capital until the row is deleted; the optional balance warning flags it, and the trades simply operate on the real (smaller) balance.
+- **Small-scale precision**: at ~$50, rebalance trades can be a few dollars — they must clear `BTC_USD` min-notional or they're skipped (intended) rather than rejected (the min-notional guards ensure this).
+- **v8 strategy caveats still apply** ([strategy_v8.md](analysis/strategies/strategy_v8.md)): permanent cash drag with `cash_yield = 0`, dip-buying's ambiguous drawdown effect, taxes unmodelled, single mostly-up cycle. These bound expectations, not correctness.

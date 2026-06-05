@@ -5,7 +5,17 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(node *)",
       "Bash(npm run *)",
-      "Bash(venv/Scripts/python.exe analysis/analysis.py)"
+      "Bash(venv/Scripts/python.exe analysis/analysis.py)",
+      "PowerShell(.\\\\venv\\\\Scripts\\\\python.exe analysis\\\\postmortem.py)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Documents\\\\GitHub\\\\the-crypto-chameleon\\\\analysis\" -Recurse)",
+      "Bash(Select-Object FullName)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Get-ChildItem *)",
+      "Bash(Select-Object Name, Length\")",
+      "Bash(python -c \"import pandas, numpy, matplotlib; print\\('ok'\\)\")",
+      "Bash(py -c \"import pandas; print\\('py ok', pandas.__version__\\)\")",
+      "Bash(py -3.14 -c \"import pandas; print\\('314 ok'\\)\")",
+      "Bash(../../venv/Scripts/python.exe postmortem_v8.py)"
     ]
   }
 }

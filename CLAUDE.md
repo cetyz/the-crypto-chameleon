@@ -34,6 +34,9 @@ GCP's Always Free tier includes one `e2-micro` Compute Engine VM (in `us-west1`,
 
 ## Guiding principles
 
+### A venv exists
+Use it. Stop wasting my time every time you fail a run because packages "aren't installed".
+
 ### NotebookLM first coding for Crypto.com Exchange
 Use the notebookLM skill to query https://notebooklm.google.com/notebook/01c07af5-acf8-4024-82ce-bd4a57eb1fd6 to ensure latest docs are being used.
 
