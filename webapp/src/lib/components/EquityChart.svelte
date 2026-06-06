@@ -1,14 +1,24 @@
 <script lang="ts">
-  import type { EquityPoint } from '$lib/types';
+  import type { AccountKey, EquityPoint, Transaction } from '$lib/types';
   import { LayerCake, Svg } from 'layercake';
   import { scaleTime } from 'd3-scale';
 
-  let { points }: { points: EquityPoint[] } = $props();
+  let {
+    points,
+    chameleonTx = [],
+    controlTx = []
+  }: { points: EquityPoint[]; chameleonTx?: Transaction[]; controlTx?: Transaction[] } = $props();
+
+  type EquityKey = 'chameleon_usd' | 'control_usd' | 'chameleon_btc' | 'control_btc';
 
   type Range = '1M' | '3M' | 'All';
   type Unit = 'USD' | 'BTC';
   let range = $state<Range>('All');
   let unit = $state<Unit>('USD');
+
+  // Shared between LayerCake's coordinate space and the HTML tooltip overlay.
+  const PAD = { top: 10, right: 4, bottom: 24, left: 72 };
+  let hovered = $state<{ x: number; y: number; m: Marker } | null>(null);
 
   const filtered = $derived.by(() => {
     if (range === 'All') return points;
@@ -35,7 +45,7 @@
     data: EquityPoint[],
     xScale: (d: Date) => number,
     yScale: (n: number) => number,
-    key: 'chameleon_usd' | 'control_usd' | 'chameleon_btc' | 'control_btc'
+    key: EquityKey
   ) {
     return data
       .map((d, i) => {
@@ -44,6 +54,66 @@
         return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
       })
       .join(' ');
+  }
+
+  // Linearly interpolate an account's value series at an arbitrary trade time so the
+  // marker sits on the line. Returns null when the trade is outside the visible x-range.
+  function valueAt(series: EquityPoint[], t: number, key: EquityKey): number | null {
+    if (series.length === 0) return null;
+    const t0 = new Date(series[0].timestamp).getTime();
+    const tN = new Date(series[series.length - 1].timestamp).getTime();
+    if (t < t0 || t > tN) return null;
+    for (let i = 0; i < series.length - 1; i++) {
+      const a = new Date(series[i].timestamp).getTime();
+      const b = new Date(series[i + 1].timestamp).getTime();
+      if (t >= a && t <= b) {
+        const f = b === a ? 0 : (t - a) / (b - a);
+        return series[i][key] + f * (series[i + 1][key] - series[i][key]);
+      }
+    }
+    return series[series.length - 1][key];
+  }
+
+  type Marker = {
+    t: number;
+    value: number;
+    side: 'buy' | 'sell';
+    account: AccountKey;
+    label: string;
+  };
+
+  const markers = $derived.by(() => {
+    const out: Marker[] = [];
+    const add = (txs: Transaction[], account: AccountKey, key: EquityKey) => {
+      for (const tx of txs) {
+        const t = new Date(tx.timestamp).getTime();
+        const value = valueAt(filtered, t, key);
+        if (value == null) continue;
+        const name = account === 'chameleon' ? 'Chameleon' : 'Control';
+        const date = new Date(tx.timestamp).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        });
+        out.push({
+          t,
+          value,
+          side: tx.side,
+          account,
+          label: `${name} · ${tx.side.toUpperCase()} · ${tx.amount} ${tx.asset} · ${date}`
+        });
+      }
+    };
+    add(chameleonTx, 'chameleon', chamKey);
+    add(controlTx, 'control', ctrlKey);
+    return out;
+  });
+
+  // Up triangle = buy, down triangle = sell.
+  function triPath(cx: number, cy: number, up: boolean, r = 5) {
+    return up
+      ? `M ${cx} ${cy - r} L ${cx + r} ${cy + r * 0.8} L ${cx - r} ${cy + r * 0.8} Z`
+      : `M ${cx} ${cy + r} L ${cx + r} ${cy - r * 0.8} L ${cx - r} ${cy - r * 0.8} Z`;
   }
 </script>
 
@@ -59,6 +129,19 @@
         <span class="flex items-center gap-2">
           <span class="inline-block h-px w-5 border-t border-dashed" style="border-color: var(--ink-faded)"></span>
           Control
+        </span>
+        <span class="text-ink-rule">·</span>
+        <span class="flex items-center gap-1.5">
+          <svg width="9" height="9" viewBox="-5 -5 10 10" aria-hidden="true">
+            <path d="M 0 -4 L 4 3 L -4 3 Z" fill="var(--ink-faded)" />
+          </svg>
+          Buy
+        </span>
+        <span class="flex items-center gap-1.5">
+          <svg width="9" height="9" viewBox="-5 -5 10 10" aria-hidden="true">
+            <path d="M 0 4 L 4 -3 L -4 -3 Z" fill="var(--ink-faded)" />
+          </svg>
+          Sell
         </span>
       </div>
     </div>
@@ -77,7 +160,7 @@
     </div>
   </div>
 
-  <div class="h-80">
+  <div class="relative h-80">
     {#if filtered.length > 1}
       <LayerCake
         data={filtered}
@@ -88,7 +171,7 @@
           Math.max(...filtered.map(yGet)) * 1.02
         ]}
         xScale={scaleTime()}
-        padding={{ top: 10, right: 4, bottom: 24, left: 72 }}
+        padding={PAD}
       >
         {#snippet children({ xScale, yScale }: { xScale: any; yScale: any })}
           <Svg>
@@ -119,9 +202,44 @@
               stroke="oklch(74% 0.13 130)"
               stroke-width="1.75"
             />
+            {#each markers as m (m.account + m.t + m.side)}
+              {@const cx = xScale(new Date(m.t))}
+              {@const cy = yScale(m.value)}
+              <path
+                d={triPath(cx, cy, m.side === 'buy')}
+                style:fill={m.account === 'chameleon' ? 'var(--chameleon)' : 'var(--ink-faded)'}
+                stroke="var(--ink-deep)"
+                stroke-width="1"
+              />
+              <circle
+                {cx}
+                {cy}
+                r="10"
+                fill="transparent"
+                role="img"
+                aria-label={m.label}
+                onmouseenter={() => (hovered = { x: cx, y: cy, m })}
+                onmouseleave={() => (hovered = null)}
+              />
+            {/each}
           </Svg>
         {/snippet}
       </LayerCake>
+      {#if hovered}
+        <div
+          class="pointer-events-none absolute z-10 whitespace-nowrap border px-2 py-1 text-xs"
+          style="
+            left: {PAD.left + hovered.x}px;
+            top: {PAD.top + hovered.y}px;
+            transform: translate(-50%, calc(-100% - 8px));
+            background: var(--ink-deep);
+            border-color: var(--ink-rule);
+            color: var(--ink-settled);
+          "
+        >
+          {hovered.m.label}
+        </div>
+      {/if}
     {:else}
       <div class="flex h-full items-center justify-center text-sm text-ink-faded">
         Not enough data in this range yet.

@@ -13,7 +13,7 @@
 
 <main>
   <HeadlineTiles summaries={data.summaries} />
-  <EquityChart points={data.equity} />
+  <EquityChart points={data.equity} chameleonTx={data.chameleonTx} controlTx={data.controlTx} />
   <NextRun scheduledAt={data.nextRun.scheduled_at} lastUpdated={data.nextRun.last_updated} />
 
   <section class="mx-auto max-w-5xl px-5 sm:px-8 py-10">
