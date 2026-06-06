@@ -452,11 +452,18 @@ def execute_trade(
     while time.monotonic() < deadline:
         detail = cdc.get_order_detail(order_id)
         status = detail.get("status")
-        if status == "FILLED":
-            break
-        if status in ("CANCELED", "REJECTED", "EXPIRED"):
+        # A spot MARKET order fills the marketable amount immediately and then
+        # CANCELs the unfillable remainder (it never rests on the book), so a
+        # successful market buy/sell terminates as CANCELED — not FILLED — with
+        # a non-zero cumulative_quantity. Treat any non-zero fill as success and
+        # only error on a genuine zero-fill terminal state.
+        if status in ("FILLED", "CANCELED", "REJECTED", "EXPIRED"):
+            filled = Decimal(str(detail.get("cumulative_quantity", "0") or "0"))
+            if filled > 0:
+                break
             raise RuntimeError(
-                f"order {status}: instrument={spec.instrument} order_id={order_id} reason={detail.get('reason')}"
+                f"order {status} with no fill: instrument={spec.instrument} "
+                f"order_id={order_id} reason={detail.get('reason')} detail={detail}"
             )
         time.sleep(ORDER_POLL_INTERVAL_S)
     else:
