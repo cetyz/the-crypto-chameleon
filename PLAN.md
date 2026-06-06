@@ -64,21 +64,21 @@ is a package; confirm `python -m scripts.run` vs `python scripts/run.py` and mir
 `.env`; log output for cron verification.
 
 Commands to set it up on the VM (run as the same user run.py's cron runs under):
-- [ ] Open the crontab for editing: `crontab -e`
-- [ ] Add the entry, mirroring run.py's invocation style and absolute paths (adjust
+- [x] Open the crontab for editing: `crontab -e`
+- [x] Add the entry, mirroring run.py's invocation style and absolute paths (adjust
   `<REPO>`/venv path to match the existing run.py line):
   ```
   0 */12 * * * cd /home/<user>/<REPO> && /home/<user>/<REPO>/venv/bin/python -m scripts.snapshot >> /home/<user>/<REPO>/snapshot.log 2>&1
   ```
-- [ ] Save and confirm it registered: `crontab -l` shows the new `0 */12 * * *` line.
-- [ ] Smoke-test the exact command by hand once (without waiting for cron): run the part after
+- [x] Save and confirm it registered: `crontab -l` shows the new `0 */12 * * *` line.
+- [x] Smoke-test the exact command by hand once (without waiting for cron): run the part after
   the timestamp and check exit 0 + two rows land.
-- [ ] After the first scheduled fire, tail the log: `tail -f /home/<user>/<REPO>/snapshot.log`.
+- [x] After the first scheduled fire, tail the log: `tail -f /home/<user>/<REPO>/snapshot.log`.
 
 To verify (when built):
-- [ ] **Snapshot insert** — run `scripts/snapshot.py` once: two rows land with `run_id IS NULL`,
+- [x] **Snapshot insert** — run `scripts/snapshot.py` once: two rows land with `run_id IS NULL`,
   `raw IS NULL`, `snapshot_at ≈ now`, `total_value_usd = btc_qty*btc_price_usd + stable_usd`.
-- [ ] **Dashboard** — equity chart shows the new intermediate point(s); headline tiles
+- [x] **Dashboard** — equity chart shows the new intermediate point(s); headline tiles
   (`getLatestSnapshots`) pick up the freshest row; no errors.
 - [ ] **Failure drill** — break a Crypto.com key / `SUPABASE_URL` → private Telegram alert +
   non-zero exit; public channel silent.
