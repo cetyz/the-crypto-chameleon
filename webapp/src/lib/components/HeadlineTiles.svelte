@@ -46,7 +46,7 @@
           <div class="mt-1 text-sm fig">{fmtUSD(s.account.starting_capital_usd)}</div>
         </div>
         <div>
-          <div class="label">Cash</div>
+          <div class="label">Cash held</div>
           <div class="mt-1 text-sm fig">{fmtUSD(s.cash_usd)}</div>
         </div>
         <div>

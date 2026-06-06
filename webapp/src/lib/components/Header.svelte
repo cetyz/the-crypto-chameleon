@@ -7,8 +7,8 @@
       </p>
     </div>
     <nav class="flex items-center gap-5 label">
-      <a href="https://t.me/" class="hover:text-ink-settled transition-colors">Telegram</a>
-      <a href="https://github.com/" class="hover:text-ink-settled transition-colors">GitHub</a>
+      <a href="https://t.me/thecryptochameleon" class="hover:text-ink-settled transition-colors">Telegram</a>
+      <a href="https://github.com/cetyz/the-crypto-chameleon" class="hover:text-ink-settled transition-colors">GitHub</a>
     </nav>
   </div>
 </header>
