@@ -9,6 +9,86 @@ to the public Telegram channel (failures go to the private one). The dashboard u
 
 ## Outstanding / to verify
 
+### Higher-resolution valuation snapshots (separate 12-hourly cron)
+
+**Intent.** Today the weekly trading job ([scripts/run.py](scripts/run.py)) is the only writer
+of `valuation_snapshots`, so the dashboard equity chart has a resolution of one point per week
+and hides intra-week movement. Add a **second, 12-hourly cron** that snapshots balances between
+weekly runs for a smoother chart. The change is **additive and read-only** (reads on-exchange
+balances + the BTC ticker, inserts valuation rows) — **no trades, no schema migration, no
+dashboard code change.**
+
+**Decisions (locked with the user).**
+- Keep run.py's own post-trade snapshot; the new job only *adds* intermediate `run_id = NULL`
+  snapshots (lowest risk, fully additive).
+- Cadence: **12-hourly** (~4 rows/day across both arms, ~1.5k/year — trivial vs. Supabase free
+  tier and Crypto.com read-only rate limits).
+- On failure: **private Telegram alert + non-zero exit**, mirroring run.py's failure policy.
+
+**Why it's low-risk.**
+- `valuation_snapshots.run_id` is **already nullable** ([schema.sql](schema.sql):69,
+  `on delete set null`; the schema comment explicitly allows "ad-hoc snapshots outside a run").
+- The unique constraint is `unique (account, run_id)` ([schema.sql](schema.sql):76). Postgres
+  treats NULLs as distinct in a UNIQUE constraint, so multiple `(account, NULL)` rows are
+  allowed — a plain `INSERT` with `run_id` omitted never conflicts.
+- The dashboard reads snapshots **purely by `snapshot_at`**, never selecting or filtering on
+  `run_id` (`getSnapshotHistory` / `buildEquitySeriesFromSnapshots` in
+  [webapp/src/lib/data/index.ts](webapp/src/lib/data/index.ts) /
+  [webapp/src/lib/metrics.ts](webapp/src/lib/metrics.ts)). Extra rows = more chart points.
+- The job uses the service-role key (bypasses RLS) like run.py — no RLS change.
+
+**Design — new `scripts/snapshot.py` (built later, no code in this task).**
+- Reuse run.py's exact balance-parse path by importing from it (no edits to the live money
+  script): `capture_balance(cdc)` ([scripts/run.py](scripts/run.py):530) and `tg_private`
+  ([scripts/run.py](scripts/run.py):292), plus the already-validated env constants
+  (`CDCEX_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`). Importing run.py re-runs its
+  module-level `_require(...)` for all its env vars (incl. `DASHBOARD_URL`, `DRY_RUN`,
+  `TELEGRAM_PUBLIC_CHANNEL_ID`) — fine on the VM, which defines them in the same `.env`.
+- `main()`: create the Supabase client + both `CryptoComAPI` clients; for each account
+  `snap = capture_balance(cdc)` then a small `insert_standalone_snapshot` doing a plain
+  `valuation_snapshots` insert of `account, btc_qty, stable_usd, btc_price_usd,
+  total_value_usd` (Decimals → `str`) with **`run_id` omitted (→ NULL)**, **`snapshot_at`
+  omitted (→ DB `default now()`)**, and **`raw` omitted** to keep the table lean (dashboard
+  never reads `raw`; only run.py's weekly snapshot keeps the audit blob). Wrap in a try/except
+  mirroring run.py:598–610 (print traceback, `tg_private(...)`, `sys.exit(1)`); it touches no
+  `runs` row. Do **not** reuse `upsert_snapshot` — it requires a `run_id` via
+  `on_conflict="account,run_id"`.
+- No idempotency key needed (moves no money; a near-duplicate row is just an extra chart
+  point). Safe to overlap the weekly run — different rows (NULL vs. real run_id).
+
+**VM wiring (lives on the VM, not the repo).** Add a 12-hourly crontab entry (e.g.
+`0 */12 * * *`, firing 00:00 and 12:00) invoking `scripts/snapshot.py` with the **venv**
+interpreter and the **same working dir / module invocation run.py already uses** (`scripts/`
+is a package; confirm `python -m scripts.run` vs `python scripts/run.py` and mirror it so
+`from cdc import ...` and the `from run import ...` reuse both resolve). Reuse the existing
+`.env`; log output for cron verification.
+
+Commands to set it up on the VM (run as the same user run.py's cron runs under):
+- [ ] Open the crontab for editing: `crontab -e`
+- [ ] Add the entry, mirroring run.py's invocation style and absolute paths (adjust
+  `<REPO>`/venv path to match the existing run.py line):
+  ```
+  0 */12 * * * cd /home/<user>/<REPO> && /home/<user>/<REPO>/venv/bin/python -m scripts.snapshot >> /home/<user>/<REPO>/snapshot.log 2>&1
+  ```
+- [ ] Save and confirm it registered: `crontab -l` shows the new `0 */12 * * *` line.
+- [ ] Smoke-test the exact command by hand once (without waiting for cron): run the part after
+  the timestamp and check exit 0 + two rows land.
+- [ ] After the first scheduled fire, tail the log: `tail -f /home/<user>/<REPO>/snapshot.log`.
+
+To verify (when built):
+- [ ] **Snapshot insert** — run `scripts/snapshot.py` once: two rows land with `run_id IS NULL`,
+  `raw IS NULL`, `snapshot_at ≈ now`, `total_value_usd = btc_qty*btc_price_usd + stable_usd`.
+- [ ] **Dashboard** — equity chart shows the new intermediate point(s); headline tiles
+  (`getLatestSnapshots`) pick up the freshest row; no errors.
+- [ ] **Failure drill** — break a Crypto.com key / `SUPABASE_URL` → private Telegram alert +
+  non-zero exit; public channel silent.
+- [ ] **No run.py regression** — run.py is untouched; its weekly invocation still imports and
+  runs (it does not import snapshot.py).
+- [ ] **Cron firing** — `grep CRON /var/log/syslog` shows the 12-hourly entry; `valuation_snapshots`
+  grows ~2 rows per fire (~4/day).
+
+### Others
+
 - [ ] **Fee charge model** — confirm whether the taker fee is taken from or charged on top
   of `notional` on the first smallest live BUY; adjust `CONTROL_FEE_BUFFER` (0.5% fallback)
   if needed. ([scripts/run.py](scripts/run.py))
