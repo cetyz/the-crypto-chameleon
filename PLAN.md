@@ -159,7 +159,7 @@ Single file, top-to-bottom readable. Sections in order:
 
 - [x] Chameleon strategy logic (decide_chameleon body). _Resolved: v8 funded basket, `target_w = 0.90`, `band = 0.05` — see "Going live: monthly deposits + real trades" below._
 - [x] Control DCA params (asset, frequency). _Resolved: spend entire available stable balance into `BTC_USD` on the post-deposit Tuesday — see "Going live" below._
-- [ ] Whether to denominate DCA in a stablecoin pair (`BTC_USDT`) vs USD (`BTC_USD`) — depends on what's tradable from each account; check with `get_instruments()` once (folded into the "Going live" pre-flight below).
+- [x] Whether to denominate DCA in a stablecoin pair (`BTC_USDT`) vs USD (`BTC_USD`) — depends on what's tradable from each account; check with `get_instruments()` once (folded into the "Going live" pre-flight below). _Resolved: `BTC_USD` is `tradable: true`; both arms trade `BTC_USD` (`TRADE_INSTRUMENT`)._
 - [x] Dashboard deployment to Vercel — the webapp shell already exists; once the first run row lands in Supabase, this becomes the next priority.
 - [x] Update `database_instructions.md`'s "GitHub Actions" references to "VM + cron + .env" (small, do alongside).
 
@@ -322,64 +322,66 @@ Three behaviours go live together:
 
 ### Schema change (apply once in Supabase SQL Editor)
 
-- [ ] Add idempotency to `capital_events` so the bot can re-attempt the same monthly insert safely:
+- [x] Add idempotency to `capital_events` so the bot can re-attempt the same monthly insert safely:
   ```sql
   alter table public.capital_events
     add constraint capital_events_account_occurred_kind_key
     unique (account, occurred_at, kind);
   ```
   Mirrors the `transactions.client_oid` discipline — a retry trips the unique and is swallowed (`23505`) instead of double-recording.
-- [ ] No other schema change. Deposits feed the existing "Capital invested" sum and % return baseline; the webapp's `getAccounts()` already reads `capital_events`.
+- [x] No other schema change. Deposits feed the existing "Capital invested" sum and % return baseline; the webapp's `getAccounts()` already reads `capital_events`.
 
 ### Pre-flight (one-time, read-only, before code)
 
-- [ ] Use the **notebooklm** skill against the Crypto.com notebook (per CLAUDE.md "NotebookLM-first") to confirm:
-  - `create_market_order` market-BUY `notional` semantics — is the taker fee deducted *from* the notional or charged *on top*? (Drives `CONTROL_FEE_BUFFER` below.)
-  - `BTC_USD` **min order size / min notional**, `quantity_decimals`, and notional precision.
-- [ ] Call `get_instruments()` once and record `BTC_USD`'s min notional + decimals. Hardcode as constants (barebones — instrument metadata is stable). This also resolves the deferred `BTC_USD` vs `BTC_USDT` denomination question above.
-- [ ] Confirm both sub-accounts currently hold the stable balance you expect (seed ± any deposits already made).
+[cdc.py](cdc.py) already wraps everything needed here, so this is mostly reading its
+output rather than consulting external docs:
+
+- [x] Call `get_instruments()` once ([cdc.py:243](cdc.py)) and record `BTC_USD`'s min notional + decimals from the returned metadata. Hardcode as constants (barebones — instrument metadata is stable). This also resolves the deferred `BTC_USD` vs `BTC_USDT` denomination question above. _Resolved via live metadata: `BTC_USD` `tradable: true` (so we trade `BTC_USD`), `quantity_decimals=5`, `quote_decimals=2`. **Min notional is NOT in the metadata** — fell through to NotebookLM (next item)._
+- [ ] Confirm `create_market_order` market-BUY `notional` semantics — the docstring at [cdc.py:304](cdc.py) already states BUY passes `notional` (quote-currency amount) and SELL passes `quantity` (base amount); the only open detail is whether the taker fee is taken *from* the notional or charged *on top*, which sets `CONTROL_FEE_BUFFER` below. `get_instruments()` metadata or a single smallest-notional live BUY answers this definitively. _Not definitively confirmed — NotebookLM had no answer (see below). Worked around with a conservative `CONTROL_FEE_BUFFER = 0.005`; confirm on the first smallest-notional live BUY._
+- [x] Only if either of the above is ambiguous from `cdc.py` / the API response, fall back to the **notebooklm** skill against the Crypto.com notebook (per CLAUDE.md "NotebookLM-first"). Don't re-derive from NotebookLM what `cdc.py` already exposes. _Queried twice; the notebook returned only balance-endpoint content — no answer on min order size or fee charge model. Used safe hardcoded fallbacks (`BTC_USD_MIN_NOTIONAL = $1`, `CONTROL_FEE_BUFFER = 0.5%`), both flagged in-code as unverified._
+- [ ] Confirm both sub-accounts currently hold the stable balance you expect (seed ± any deposits already made). _Live-account check — do on the VM before flipping `DRY_RUN=false`._
 
 ### Code — [scripts/run.py](scripts/run.py)
 
 **Constants**
-- [ ] `MONTHLY_DEPOSIT_USD = Decimal("50")`
-- [ ] `CHAMELEON_TARGET_W = Decimal("0.90")`, `CHAMELEON_BAND = Decimal("0.05")`
-- [ ] `BTC_USD_MIN_NOTIONAL`, `BTC_USD_QTY_DECIMALS`, `BTC_USD_NOTIONAL_DECIMALS` from pre-flight.
-- [ ] `CONTROL_FEE_BUFFER = Decimal("0.005")` — shave the control buy so the fee doesn't overdraw the balance (final value pending the NotebookLM answer).
-- [ ] Retire the `CONTROL_DCA` disabled block — replaced by balance-driven logic.
+- [x] `MONTHLY_DEPOSIT_USD = Decimal("50")`
+- [x] `CHAMELEON_TARGET_W = Decimal("0.90")`, `CHAMELEON_BAND = Decimal("0.05")`
+- [x] `BTC_USD_MIN_NOTIONAL`, `BTC_USD_QTY_DECIMALS`, `BTC_USD_NOTIONAL_DECIMALS` from pre-flight. _Decimals from live metadata (5 / 2); `BTC_USD_MIN_NOTIONAL = Decimal("1")` conservative fallback (not in metadata), `TRADE_INSTRUMENT = "BTC_USD"`._
+- [x] `CONTROL_FEE_BUFFER = Decimal("0.005")` — shave the control buy so the fee doesn't overdraw the balance (final value pending the NotebookLM answer). _NotebookLM had no answer; 0.5% kept as the safe fallback, flagged in-code to verify on first live BUY._
+- [x] Retire the `CONTROL_DCA` disabled block — replaced by balance-driven logic.
 
 **Deposit helpers (new)**
-- [ ] `last_friday_of_month(year, month) -> date`.
-- [ ] `most_recent_deposit_date(now) -> date` — last Friday of the current month if `<= now.date()`, else last Friday of the previous month. Use that date at `00:00 UTC` as `occurred_at` so the value is deterministic and the unique constraint makes re-runs no-ops.
-- [ ] `record_due_deposits(sb, now)` — for the most-recent deposit date, attempt `insert` into `capital_events` (`kind='deposit'`, `amount_usd=50`, `note='monthly auto-deposit'`) for **both** accounts; catch `APIError` code `23505` and continue (reuse the existing `insert_transaction` 23505 pattern). No date arithmetic against the previous run is needed — idempotency makes "attempt every run" safe.
+- [x] `last_friday_of_month(year, month) -> date`.
+- [x] `most_recent_deposit_date(now) -> date` — last Friday of the current month if `<= now.date()`, else last Friday of the previous month. Use that date at `00:00 UTC` as `occurred_at` so the value is deterministic and the unique constraint makes re-runs no-ops.
+- [x] `record_due_deposits(sb, now)` — for the most-recent deposit date, attempt `insert` into `capital_events` (`kind='deposit'`, `amount_usd=50`, `note='monthly auto-deposit'`) for **both** accounts; catch `APIError` code `23505` and continue (reuse the existing `insert_transaction` 23505 pattern). No date arithmetic against the previous run is needed — idempotency makes "attempt every run" safe.
 
 **Shared balance read (refactor)**
-- [ ] Factor the BTC/stable/price read out of `capture_balance` into `read_position(cdc) -> (btc_qty, stable_usd, btc_price)` so `decide_chameleon`, `decide_control`, and `capture_balance` share one code path (no drift in how balances are parsed). `capture_balance` keeps building the snapshot dict on top of it.
+- [x] Factor the BTC/stable/price read out of `capture_balance` into `read_position(cdc) -> (btc_qty, stable_usd, btc_price)` so `decide_chameleon`, `decide_control`, and `capture_balance` share one code path (no drift in how balances are parsed). `capture_balance` keeps building the snapshot dict on top of it. _`read_position` returns a 4th element (the raw payloads) so the snapshot's audit blob comes from the same single read; decide callers ignore it._
 
 **Rounding helpers (new)**
-- [ ] `floor_to_qty(x)` / `floor_to_notional(x)` — `Decimal.quantize(..., rounding=ROUND_DOWN)` to instrument precision. Flooring keeps orders inside the available balance and avoids precision rejects.
+- [x] `floor_to_qty(x)` / `floor_to_notional(x)` — `Decimal.quantize(..., rounding=ROUND_DOWN)` to instrument precision. Flooring keeps orders inside the available balance and avoids precision rejects.
 
 **`decide_control(cdc)`**
-- [ ] `btc_qty, stable_usd, price = read_position(cdc)`
-- [ ] `spend = floor_to_notional(stable_usd * (1 - CONTROL_FEE_BUFFER))`
-- [ ] `if spend < BTC_USD_MIN_NOTIONAL: return None` (no fresh deposit cash to deploy)
-- [ ] `return OrderSpec(instrument="BTC_USD", side="BUY", purpose="dca", notional=spend)`
+- [x] `btc_qty, stable_usd, price = read_position(cdc)`
+- [x] `spend = floor_to_notional(stable_usd * (1 - CONTROL_FEE_BUFFER))`
+- [x] `if spend < BTC_USD_MIN_NOTIONAL: return None` (no fresh deposit cash to deploy)
+- [x] `return OrderSpec(instrument="BTC_USD", side="BUY", purpose="dca", notional=spend)`
 - No calendar logic — control's steady state is ~0 cash (it spends everything monthly), so this fires only when a deposit lands, and is robust to a missed Tuesday.
 
 **`decide_chameleon(cdc)` — v8 funded basket**
-- [ ] `btc_qty, stable_usd, price = read_position(cdc)`
-- [ ] `btc_value = btc_qty * price`; `total = btc_value + stable_usd`; `if total <= 0: return None`
-- [ ] `target_value = CHAMELEON_TARGET_W * total`; `drift = btc_value - target_value`; `thresh = CHAMELEON_BAND * total`
-- [ ] `if drift > thresh:` BTC too heavy → SELL down to target. `qty = floor_to_qty(drift / price)`; `if qty < min: return None`; `return OrderSpec(side="SELL", purpose="rebal", quantity=qty)`
-- [ ] `elif drift < -thresh:` BTC too light → BUY up to target. `notional = floor_to_notional(-drift)`; `if notional < min: return None`; `return OrderSpec(side="BUY", purpose="rebal", notional=notional)`
-- [ ] `else: return None` (weight inside 0.85–0.95 → hold; the fee-saving band)
+- [x] `btc_qty, stable_usd, price = read_position(cdc)`
+- [x] `btc_value = btc_qty * price`; `total = btc_value + stable_usd`; `if total <= 0: return None`
+- [x] `target_value = CHAMELEON_TARGET_W * total`; `drift = btc_value - target_value`; `thresh = CHAMELEON_BAND * total`
+- [x] `if drift > thresh:` BTC too heavy → SELL down to target. `qty = floor_to_qty(drift / price)`; `if qty < min: return None`; `return OrderSpec(side="SELL", purpose="rebal", quantity=qty)`
+- [x] `elif drift < -thresh:` BTC too light → BUY up to target. `notional = floor_to_notional(-drift)`; `if notional < min: return None`; `return OrderSpec(side="BUY", purpose="rebal", notional=notional)`
+- [x] `else: return None` (weight inside 0.85–0.95 → hold; the fee-saving band)
 - Code-comment the safety proof: the buy size `-drift = 0.9·cash − 0.1·btc_value < cash`, so the rebalance can never overspend the cash sleeve; only min-notional/precision flooring is needed, no fee buffer.
 
 **`main()`**
-- [ ] Call `record_due_deposits(sb, scheduled_for)` **right after `upsert_run`**, before the trade loop — deposit is on the books before either arm acts and before the snapshot.
-- [ ] Trade loop and snapshot loop otherwise unchanged (`decide_fn` → `execute_trade`; then `capture_balance` → `upsert_snapshot`).
-- [ ] (Optional safeguard) after snapshots, if a deposit was recorded this run but the post-trade combined balance is materially short of expected, `tg_private` a non-blocking warning.
-- [ ] `client_oid` lengths fine: `20260630-chameleon-rebal` = 24 chars (≤36).
+- [x] Call `record_due_deposits(sb, scheduled_for)` **right after `upsert_run`**, before the trade loop — deposit is on the books before either arm acts and before the snapshot.
+- [x] Trade loop and snapshot loop otherwise unchanged (`decide_fn` → `execute_trade`; then `capture_balance` → `upsert_snapshot`).
+- [ ] (Optional safeguard) after snapshots, if a deposit was recorded this run but the post-trade combined balance is materially short of expected, `tg_private` a non-blocking warning. _Deferred — not implemented this pass (phantom-deposit caveat below documents the accepted trade-off)._
+- [x] `client_oid` lengths fine: `20260630-chameleon-rebal` = 24 chars (≤36). _Verified._
 
 **No change** to `execute_trade` (BUY-by-notional / SELL-by-quantity, DRY_RUN, 30s fill polling, idempotent insert already correct) or to the Telegram / run-status plumbing.
 
@@ -390,8 +392,8 @@ Three behaviours go live together:
 
 ### Verification
 
-- [ ] **Date helpers** (local): `last_friday_of_month` / `most_recent_deposit_date` against a few known months, including a Tuesday that falls *before* that month's last Friday (must pick the previous month's Friday).
-- [ ] **Chameleon decision** (local, synthetic balances): weight 1.00 → SELL; weight ~0.50 (fresh deposit) → BUY; weight 0.90 → None; weight 0.93 → None (inside band).
+- [x] **Date helpers** (local): `last_friday_of_month` / `most_recent_deposit_date` against a few known months, including a Tuesday that falls *before* that month's last Friday (must pick the previous month's Friday). _Passed (incl. Tue 2026-06-09 → 2026-05-29, and Jan → prev Dec)._
+- [x] **Chameleon decision** (local, synthetic balances): weight 1.00 → SELL; weight ~0.50 (fresh deposit) → BUY; weight 0.90 → None; weight 0.93 → None (inside band). _Passed; `decide_control` also checked ($50 → BUY 49.75, $0 → None, sub-$1 → None)._
 - [ ] **Deposit idempotency**: run `record_due_deposits` twice for the same month → exactly one `capital_events` row per account (23505 swallowed).
 - [ ] **Run idempotency**: re-run with the same `scheduled_for` → no duplicate `transactions` (unique `client_oid`), one snapshot per `(account, run_id)`.
 - [ ] **Dashboard**: after a deposit run, "Capital invested" rises by $50 per account; % return recomputes against the new denominator.

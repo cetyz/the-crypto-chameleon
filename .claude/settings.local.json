@@ -15,7 +15,9 @@
       "Bash(python -c \"import pandas, numpy, matplotlib; print\\('ok'\\)\")",
       "Bash(py -c \"import pandas; print\\('py ok', pandas.__version__\\)\")",
       "Bash(py -3.14 -c \"import pandas; print\\('314 ok'\\)\")",
-      "Bash(../../venv/Scripts/python.exe postmortem_v8.py)"
+      "Bash(../../venv/Scripts/python.exe postmortem_v8.py)",
+      "Read(//c/Users/cetyz/.claude/skills/notebooklm/**)",
+      "Bash(python scripts/run.py auth_manager.py status)",
     ]
   }
 }

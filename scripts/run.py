@@ -14,9 +14,9 @@ import sys
 import time
 import traceback
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from typing import Any, Dict, Literal, Optional
+from datetime import date, datetime, timedelta, timezone
+from decimal import ROUND_DOWN, Decimal
+from typing import Any, Dict, Literal, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -60,11 +60,33 @@ DRY_RUN = _require("DRY_RUN").lower() == "true"
 ORDER_POLL_TIMEOUT_S = 30
 ORDER_POLL_INTERVAL_S = 1
 
-CONTROL_DCA: Dict[str, Any] = {
-    "enabled": False,
-    "instrument": "BTC_USD",
-    "notional": Decimal("0"),
-}
+# Both arms trade the same spot pair. BTC_USD confirmed tradable via
+# get_instruments; instrument metadata gives the precision below.
+TRADE_INSTRUMENT = "BTC_USD"
+BTC_USD_QTY_DECIMALS = 5  # qty_tick_size 0.00001
+BTC_USD_NOTIONAL_DECIMALS = 2  # quote_decimals 2 (USD cents)
+
+# Minimum order size is NOT exposed in get_instruments metadata and the
+# Crypto.com NotebookLM had no answer, so this is a conservative fallback:
+# well above any real BTC_USD minimum, far below our ~$50 trade scale, so it
+# only skips sub-$1 dust rebalances. Verify/relax on the first live run.
+BTC_USD_MIN_NOTIONAL = Decimal("1")
+
+# Control shaves its buy by this fraction so that, even if the taker fee is
+# charged on top of the notional (unconfirmed — NotebookLM had no answer), the
+# order can't overdraw the stable balance. 0.5% comfortably exceeds the taker
+# fee. Chameleon does not need this: its rebalance-buy is strictly less than
+# the cash sleeve (proof in decide_chameleon).
+CONTROL_FEE_BUFFER = Decimal("0.005")
+
+MONTHLY_DEPOSIT_USD = Decimal("50")
+
+# Chameleon = strategy_v8 funded two-way basket. Hold while BTC weight sits in
+# [target - band, target + band] = [0.85, 0.95]; otherwise rebalance all the
+# way back to target. band = 0.05 per PLAN.md "Going live" (governs over
+# strategy_v8.md's research-doc 0.03).
+CHAMELEON_TARGET_W = Decimal("0.90")
+CHAMELEON_BAND = Decimal("0.05")
 
 
 # ----------------------------------------------------------------------
@@ -86,6 +108,66 @@ def compute_next_tuesday_1300_utc(now: datetime) -> datetime:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ----------------------------------------------------------------------
+# 4.5 Monthly deposits
+# ----------------------------------------------------------------------
+
+# $50 lands in *each* arm on the last Friday of every month. The bot records
+# these into capital_events itself (the dashboard's "Capital invested"
+# denominator) — trading reads live on-exchange balances, not these rows.
+
+
+def last_friday_of_month(year: int, month: int) -> date:
+    """Date of the last Friday (weekday 4) in the given month."""
+    if month == 12:
+        last_day = date(year, 12, 31)
+    else:
+        last_day = date(year, month + 1, 1) - timedelta(days=1)
+    # Step back from the last day to the most recent Friday.
+    offset = (last_day.weekday() - 4) % 7
+    return last_day - timedelta(days=offset)
+
+
+def most_recent_deposit_date(now: datetime) -> date:
+    """Last Friday of the current month if it has occurred, else of the
+    previous month. This is the deposit that should already be on the books."""
+    this_month = last_friday_of_month(now.year, now.month)
+    if this_month <= now.date():
+        return this_month
+    prev = (now.replace(day=1) - timedelta(days=1))
+    return last_friday_of_month(prev.year, prev.month)
+
+
+def record_due_deposits(sb: Client, now: datetime) -> None:
+    """Idempotently record the most-recent monthly $50 deposit for both arms.
+
+    occurred_at is pinned to the deposit date at 00:00 UTC so the value is
+    deterministic; the unique (account, occurred_at, kind) constraint makes
+    re-runs no-ops (23505 swallowed). Safe to attempt every run — no date
+    arithmetic against the previous run needed.
+    """
+    deposit_date = most_recent_deposit_date(now)
+    occurred_at = datetime(
+        deposit_date.year, deposit_date.month, deposit_date.day, tzinfo=timezone.utc
+    )
+    for account in ("chameleon", "control"):
+        try:
+            sb.table("capital_events").insert(
+                {
+                    "account": account,
+                    "occurred_at": occurred_at.isoformat(),
+                    "kind": "deposit",
+                    "amount_usd": str(MONTHLY_DEPOSIT_USD),
+                    "note": "monthly auto-deposit",
+                }
+            ).execute()
+            print(f"{account}: recorded deposit for {deposit_date.isoformat()}")
+        except APIError as e:
+            if getattr(e, "code", None) == "23505":
+                continue  # already recorded this month — idempotent
+            raise
 
 
 # ----------------------------------------------------------------------
@@ -233,19 +315,68 @@ class OrderSpec:
             raise ValueError("SELL OrderSpec needs quantity")
 
 
-def decide_chameleon(cdc: CryptoComAPI) -> Optional[OrderSpec]:
-    return None  # TODO: implement strategy
+def floor_to_qty(x: Decimal) -> Decimal:
+    """Floor a base-asset quantity to instrument precision (ROUND_DOWN keeps
+    the order inside the available balance and avoids precision rejects)."""
+    return x.quantize(Decimal(1).scaleb(-BTC_USD_QTY_DECIMALS), rounding=ROUND_DOWN)
+
+
+def floor_to_notional(x: Decimal) -> Decimal:
+    """Floor a quote-currency (USD) notional to instrument precision."""
+    return x.quantize(
+        Decimal(1).scaleb(-BTC_USD_NOTIONAL_DECIMALS), rounding=ROUND_DOWN
+    )
 
 
 def decide_control(cdc: CryptoComAPI) -> Optional[OrderSpec]:
-    if not CONTROL_DCA["enabled"]:
-        return None
+    """Control DCA: spend the entire available stable balance on BTC_USD.
+
+    No calendar logic — control's steady state is ~0 cash (it spends everything
+    each month), so this fires only when a fresh deposit lands, and is robust to
+    a missed run (cash deploys the next run rather than being stranded).
+    """
+    _btc_qty, stable_usd, _price, _raw = read_position(cdc)
+    spend = floor_to_notional(stable_usd * (Decimal(1) - CONTROL_FEE_BUFFER))
+    if spend < BTC_USD_MIN_NOTIONAL:
+        return None  # no fresh deposit cash to deploy
     return OrderSpec(
-        instrument=CONTROL_DCA["instrument"],
-        side="BUY",
-        purpose="dca",
-        notional=CONTROL_DCA["notional"],
+        instrument=TRADE_INSTRUMENT, side="BUY", purpose="dca", notional=spend
     )
+
+
+def decide_chameleon(cdc: CryptoComAPI) -> Optional[OrderSpec]:
+    """strategy_v8 funded two-way basket. Rebalance BTC back to target_w when
+    weight drifts outside the no-trade band; otherwise hold."""
+    btc_qty, stable_usd, price, _raw = read_position(cdc)
+    btc_value = btc_qty * price
+    total = btc_value + stable_usd
+    if total <= 0:
+        return None
+
+    target_value = CHAMELEON_TARGET_W * total
+    drift = btc_value - target_value  # >0 BTC too heavy, <0 too light
+    thresh = CHAMELEON_BAND * total
+
+    if drift > thresh:
+        # BTC over target -> SELL down to target.
+        qty = floor_to_qty(drift / price)
+        if qty <= 0 or qty * price < BTC_USD_MIN_NOTIONAL:
+            return None
+        return OrderSpec(
+            instrument=TRADE_INSTRUMENT, side="SELL", purpose="rebal", quantity=qty
+        )
+    if drift < -thresh:
+        # BTC under target -> BUY up to target. Safety: the buy size
+        # -drift = 0.9*cash - 0.1*btc_value < cash, so the rebalance can never
+        # overspend the cash sleeve; only min-notional/precision flooring is
+        # needed, no fee buffer.
+        notional = floor_to_notional(-drift)
+        if notional < BTC_USD_MIN_NOTIONAL:
+            return None
+        return OrderSpec(
+            instrument=TRADE_INSTRUMENT, side="BUY", purpose="rebal", notional=notional
+        )
+    return None  # weight inside the band -> hold
 
 
 # ----------------------------------------------------------------------
@@ -360,8 +491,16 @@ def execute_trade(
 STABLE_INSTRUMENTS = frozenset({"USD", "USDC", "USDT", "USDC.E"})
 
 
-def capture_balance(cdc: CryptoComAPI) -> Dict[str, Any]:
-    """Read on-exchange balance + live BTC price for one account."""
+def read_position(
+    cdc: CryptoComAPI,
+) -> Tuple[Decimal, Decimal, Decimal, Dict[str, Any]]:
+    """Read one account's (btc_qty, stable_usd, btc_price, raw) from the exchange.
+
+    Single balance-parse path shared by decide_chameleon, decide_control, and
+    capture_balance so the three never drift in how balances are interpreted.
+    `raw` holds the source payloads for the snapshot's audit blob; decide
+    callers ignore it.
+    """
     bal = cdc.get_user_balance()
     positions = bal["data"][0]["position_balances"]
 
@@ -378,14 +517,19 @@ def capture_balance(cdc: CryptoComAPI) -> Dict[str, Any]:
     ticker = cdc.get_ticker("BTC_USD")
     # Crypto.com ticker field "a" = latest trade price; verified in execute_trade.
     btc_price_usd = Decimal(str(ticker["a"]))
+    return btc_qty, stable_usd, btc_price_usd, {"balance": bal, "ticker": ticker}
 
+
+def capture_balance(cdc: CryptoComAPI) -> Dict[str, Any]:
+    """On-exchange balance + live BTC price for one account, as a snapshot dict."""
+    btc_qty, stable_usd, btc_price_usd, raw = read_position(cdc)
     total = btc_qty * btc_price_usd + stable_usd
     return {
         "btc_qty": btc_qty,
         "stable_usd": stable_usd,
         "btc_price_usd": btc_price_usd,
         "total_value_usd": total,
-        "raw": {"balance": bal, "ticker": ticker},
+        "raw": raw,
     }
 
 
@@ -407,6 +551,11 @@ def main() -> None:
             f"run started: scheduled_for={scheduled_for.isoformat()} "
             f"run_id={run_id} dry_run={DRY_RUN}"
         )
+
+        # Deposit on the books before either arm acts and before the snapshot,
+        # so the rebalance redistributes any landed cash and "Capital invested"
+        # stays honest. Idempotent — safe to attempt every run.
+        record_due_deposits(sb, scheduled_for)
 
         accounts = (
             ("chameleon", decide_chameleon, cdc_chameleon),
