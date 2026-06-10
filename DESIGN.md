@@ -1,7 +1,7 @@
 <!-- SEED: re-run /impeccable document once there's code to capture the actual tokens and components. -->
 ---
 name: The Crypto Chameleon
-description: A public, deadpan transparency dashboard pitting an algorithmic trading account against a dumb weekly DCA.
+description: A public, deadpan transparency dashboard pitting an algorithmic trading account against a dumb monthly DCA.
 ---
 
 # Design System: The Crypto Chameleon

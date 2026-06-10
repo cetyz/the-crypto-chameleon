@@ -1,6 +1,14 @@
 <script lang="ts">
   let { lastUpdated }: { lastUpdated: string } = $props();
-  const formatted = $derived(new Date(lastUpdated).toLocaleString());
+  const formatted = $derived.by(() => {
+    if (!lastUpdated) return '—';
+    const d = new Date(lastUpdated);
+    const date = d.toLocaleDateString('en-CA');
+    const time = d
+      .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      .toLowerCase();
+    return `${date} · ${time}`;
+  });
 </script>
 
 <footer class="border-t hairline mt-16">

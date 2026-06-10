@@ -3,7 +3,7 @@
     <div>
       <h1 class="serif text-3xl sm:text-4xl leading-none">The Crypto Chameleon</h1>
       <p class="mt-2 text-sm text-ink-faded max-w-[60ch]">
-        One algorithmic trader, one weekly DCA, two real accounts. Every receipt below.
+        One algorithmic trader, one monthly DCA, two real accounts. Every receipt below.
       </p>
     </div>
     <nav class="flex items-center gap-5 label">

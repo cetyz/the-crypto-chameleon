@@ -55,6 +55,17 @@ export async function getTransactions(account?: AccountKey): Promise<Transaction
   }));
 }
 
+export async function getLatestSnapshotAt(): Promise<string> {
+  const { data, error } = await supabase
+    .from('valuation_snapshots')
+    .select('snapshot_at')
+    .order('snapshot_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.snapshot_at ?? '';
+}
+
 export async function getNextRun(): Promise<NextRun> {
   const [pending, latest] = await Promise.all([
     supabase

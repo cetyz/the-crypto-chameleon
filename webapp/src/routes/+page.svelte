@@ -14,7 +14,11 @@
 <main>
   <HeadlineTiles summaries={data.summaries} />
   <EquityChart points={data.equity} chameleonTx={data.chameleonTx} controlTx={data.controlTx} />
-  <NextRun scheduledAt={data.nextRun.scheduled_at} lastUpdated={data.nextRun.last_updated} />
+  <NextRun
+    scheduledAt={data.nextRun.scheduled_at}
+    lastRun={data.nextRun.last_updated}
+    lastUpdated={data.lastSnapshotAt}
+  />
 
   <section class="mx-auto max-w-5xl px-5 sm:px-8 py-10">
     <h2 class="serif text-2xl mb-8">Transaction log</h2>
@@ -25,4 +29,4 @@
   </section>
 </main>
 
-<Footer lastUpdated={data.nextRun.last_updated} />
+<Footer lastUpdated={data.lastSnapshotAt} />

@@ -6,7 +6,7 @@ brand
 
 ## Users
 
-A mixed general-web audience — friends, strangers who stumble in from a Telegram link, and the occasional crypto-curious onlooker. They arrive on a phone or laptop with no prior context, no account, and no intent to trade. The job to be done is simple: in the first ten seconds, decide whether this experiment is worth a second look. They want to see whether the algorithmic Chameleon account is actually beating a dumb weekly DCA, presented honestly enough that they trust the numbers.
+A mixed general-web audience — friends, strangers who stumble in from a Telegram link, and the occasional crypto-curious onlooker. They arrive on a phone or laptop with no prior context, no account, and no intent to trade. The job to be done is simple: in the first ten seconds, decide whether this experiment is worth a second look. They want to see whether the algorithmic Chameleon account is actually beating a dumb monthly DCA, presented honestly enough that they trust the numbers.
 
 ## Product Purpose
 
